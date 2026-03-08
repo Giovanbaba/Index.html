@@ -4,8 +4,8 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
-<meta name="apple-mobile-web-app-title" content="ACCF Football"/>
-<title>⚽ ACCF – Rotations Football</title>
+<meta name="apple-mobile-web-app-title" content="ACCF Football HOUDENG"/>
+<title>⚽ ACCF – Rotations ACCF Football HOUDENG U9B</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:#0a0e1a;color:#e8eaf6;font-family:'Trebuchet MS',sans-serif;min-height:100vh;padding-bottom:80px;}
@@ -34,7 +34,7 @@ input[type=date]{color-scheme:dark;font-family:'Trebuchet MS',sans-serif;}
 </head>
 <body>
 <div id="header">
-  <div class="sub">⚽ Football 5v5 · ACCF</div>
+  <div class="sub">⚽ ACCF Football HOUDENG 5v5 · ACCF</div>
   <h1>Gestionnaire Rotations</h1>
   <div class="desc">Formation fixe : GK · n°3 · n°7 · n°11 · n°9 — 4 rotations × 12min30</div>
 </div>
@@ -117,31 +117,46 @@ const S={
 // ═══════════════════════════════════
 function buildPlan(field){
   // Étape 1 : assigner un poste principal à chaque joueur
-  // Priorité aux postes avec peu de joueurs
-  const assigned={};        // name→pos
+  // Règle : tous les postes DOIVENT être couverts. Les multi-postes comblent les trous.
+  const assigned={};
   const posPool={DC:[],N7:[],N11:[],N9:[]};
 
-  // D'abord les mono-poste de champ
+  // Pass 1 : mono-poste de champ → assignés directement
   field.forEach(name=>{
     const p=gP(name);
     const opts=p.pos.filter(x=>x!=="GK");
     if(opts.length===1){assigned[name]=opts[0]; posPool[opts[0]].push(name);}
   });
 
-  // Ensuite les multi-poste → poste le moins couvert
+  // Pass 2 : multi-postes → d'abord combler les postes vides, ensuite les moins couverts
   field.forEach(name=>{
     if(assigned[name])return;
     const p=gP(name);
     const opts=p.pos.filter(x=>x!=="GK");
-    // trier par nb joueurs assignés croissant
-    opts.sort((a,b)=>posPool[a].length-posPool[b].length);
-    assigned[name]=opts[0];
-    posPool[opts[0]].push(name);
+    // Priorité absolue aux postes vides
+    const empty=opts.filter(x=>posPool[x].length===0);
+    const target=empty.length>0
+      ? empty[0]
+      : opts.sort((a,b)=>posPool[a].length-posPool[b].length)[0];
+    assigned[name]=target;
+    posPool[target].push(name);
   });
 
-  // Vérif : tous les postes couverts ?
+  // Pass 3 : si un poste est encore vide, chercher un joueur multi-poste déjà assigné
+  // ailleurs qui peut le couvrir, et le déplacer (en dupliquant si nécessaire)
+  ["DC","N7","N11","N9"].forEach(pos=>{
+    if(posPool[pos].length>0)return;
+    // Trouver un joueur qui peut jouer ce poste mais est assigné ailleurs
+    const candidate=field.find(name=>can(name,pos)&&assigned[name]!==pos);
+    if(candidate){
+      // Ajouter ce joueur aussi dans ce poste (il couvre les deux)
+      posPool[pos].push(candidate);
+    }
+  });
+
+  // Vérif finale : si toujours vide, vraiment impossible
   for(const pos of["DC","N7","N11","N9"]){
-    if(!posPool[pos].length) return {error:`Aucun joueur pour le poste ${POS[pos].label} (${POS[pos].num}) !`};
+    if(!posPool[pos].length) return {error:`Impossible de couvrir le poste ${POS[pos].label} (${POS[pos].num}) avec les joueurs présents.`};
   }
 
   // Étape 2 : construire 4 rotations
