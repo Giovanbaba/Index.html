@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="ACCF Futsal"/>
+<title>⚽ ACCF – Rotations Futsal</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#0a0e1a;color:#e8eaf6;font-family:'Trebuchet MS',sans-serif;min-height:100vh;padding-bottom:80px;}
+button{cursor:pointer;font-family:'Trebuchet MS',sans-serif;}
+input[type=date]{color-scheme:dark;font-family:'Trebuchet MS',sans-serif;}
+#header{background:linear-gradient(135deg,#1a237e,#283593);padding:18px 16px 12px;border-bottom:3px solid #3949ab;}
+#header .sub{font-size:10px;letter-spacing:3px;color:#7986cb;margin-bottom:4px;text-transform:uppercase;}
+#header h1{font-size:20px;font-weight:700;color:#fff;margin-bottom:3px;}
+#header .desc{font-size:10px;color:#9fa8da;}
+#tabs{background:#0d1226;border-bottom:1px solid #1a2040;display:flex;}
+.tab-btn{flex:1;padding:10px 2px;background:transparent;color:#7986cb;border:none;font-size:11px;border-bottom:2px solid transparent;transition:all .2s;}
+.tab-btn.active{background:#1a2a6c;color:#7eb6ff;font-weight:700;border-bottom:2px solid #3f7fff;}
+#app{padding:14px 12px;max-width:680px;margin:0 auto;}
+.card{background:#111827;border-radius:12px;padding:16px;margin-bottom:12px;border:1px solid #1e2d50;}
+.lbl{font-size:10px;color:#7986cb;letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:8px;font-weight:700;}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:6px 11px;border-radius:18px;font-size:12px;font-weight:600;border:2px solid #2a2a4a;background:#1a1a2e;color:#555;margin:3px;transition:all .15s;cursor:pointer;}
+.pill.on{background:#1a3a5c;color:#e8eaf6;}
+.btn-main{width:100%;padding:12px;background:linear-gradient(135deg,#1565c0,#1e88e5);color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:700;margin-bottom:14px;box-shadow:0 4px 15px rgba(30,136,229,.3);}
+.btn-save{width:100%;padding:11px;background:linear-gradient(135deg,#1b5e20,#2e7d32);color:#fff;border:none;border-radius:12px;font-size:13px;font-weight:700;margin-top:12px;}
+.btn-save:disabled{background:#1b3a1b;cursor:default;}
+.btn-danger{padding:5px 10px;background:#2d1010;border:1px solid #e74c3c;border-radius:8px;color:#ff8a80;font-size:11px;}
+.alert-w{background:#2d1010;border:1px solid #e74c3c;border-radius:8px;padding:8px 12px;margin-bottom:7px;font-size:11px;color:#ff8a80;}
+.alert-i{background:#1a2010;border:1px solid #f39c12;border-radius:8px;padding:8px 12px;margin-bottom:7px;font-size:11px;color:#ffd54f;}
+.green-note{background:#1a2010;border:1px solid #33691e;border-radius:8px;padding:9px 12px;font-size:11px;color:#aed581;margin-top:6px;}
+</style>
+</head>
+<body>
+<div id="header">
+  <div class="sub">⚽ Futsal 5v5 · ACCF</div>
+  <h1>Gestionnaire Rotations</h1>
+  <div class="desc">Formation fixe : GK · n°3 · n°7 · n°11 · n°9 — 4 rotations × 12min30</div>
+</div>
+<div id="tabs">
+  <button class="tab-btn active" onclick="showTab('match')">🗓️ Match</button>
+  <button class="tab-btn" onclick="showTab('history')">📋 Historique</button>
+  <button class="tab-btn" onclick="showTab('roster')">👥 Effectif</button>
+</div>
+<div id="app">
+  <div id="tab-match"></div>
+  <div id="tab-history" style="display:none"></div>
+  <div id="tab-roster" style="display:none"></div>
+</div>
+<script>
+// ═══════════════════════════════════
+// DONNÉES
+// Postes : GK · DC (n°3) · N7 (ailier G) · N11 (ailier D) · N9 (attaquant)
+// ═══════════════════════════════════
+const PLAYERS=[
+  {name:"Jorvie", pos:["GK"],          fixed:true},
+  {name:"Tessio", pos:["DC"]},
+  {name:"Raf",    pos:["DC","N7","N11"]},
+  {name:"Ricardo",pos:["DC"]},
+  {name:"Aidan",  pos:["DC"]},
+  {name:"Sandro", pos:["N7","N11"]},
+  {name:"Dario",  pos:["N7","N11"]},
+  {name:"Thymao", pos:["N7","N11"]},
+  {name:"Noam",   pos:["N7","N11"]},
+  {name:"Mathias",pos:["N11","N9"]},
+  {name:"Isaac",  pos:["N9"]},
+];
+const ALL=PLAYERS.map(p=>p.name);
+const SLOTS=["GK","DC","N7","N11","N9"];
+const POS={
+  GK: {label:"Gardien",  num:"GK",   emoji:"🧤",color:"#f39c12",bg:"#2a1a00"},
+  DC: {label:"Défenseur",num:"n°3",  emoji:"🛡️",color:"#3498db",bg:"#001828"},
+  N7: {label:"Ailier G", num:"n°7",  emoji:"⚡",color:"#2ecc71",bg:"#002810"},
+  N11:{label:"Ailier D", num:"n°11", emoji:"⚡",color:"#1abc9c",bg:"#002820"},
+  N9: {label:"Attaquant",num:"n°9",  emoji:"⚽",color:"#e74c3c",bg:"#280000"},
+};
+const RC=[
+  {col:"#2196f3",bg:"#071828",t:"0:00 → 12:30"},
+  {col:"#9c27b0",bg:"#150720",t:"12:30 → 25:00"},
+  {col:"#4caf50",bg:"#071507",t:"25:00 → 37:30"},
+  {col:"#f44336",bg:"#180707",t:"37:30 → 50:00"},
+];
+
+function gP(n){return PLAYERS.find(p=>p.name===n);}
+function can(n,pos){return gP(n).pos.includes(pos);}
+function fmt(ds){if(!ds)return"";const[y,m,d]=ds.split("-");return`${d}/${m}/${y}`;}
+function daysB(d1,d2){return Math.round((new Date(d2)-new Date(d1))/(864e5));}
+function loadLS(k,d){try{return JSON.parse(localStorage.getItem(k))||d;}catch{return d;}}
+function saveLS(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
+
+const S={
+  tab:"match",date:"",present:new Set(ALL),
+  hist:loadLS("accf3_h",{}),matches:loadLS("accf3_m",[]),
+  plan:null,alerts:[],saved:false
+};
+
+// ═══════════════════════════════════
+// ALGORITHME : 4 rotations valides
+//
+// Règle : chaque rotation = exactement 1 joueur par poste (GK·DC·N7·N11·N9)
+// Jorvie joue toutes les rotations (GK fixe, 50min)
+// 7 joueurs de champ → distribués sur 4×4 slots = 16 slots
+// Chaque joueur joue 2 rotations = 25min (idéal)
+// Si 7 joueurs : 7×2=14 slots → 2 joueurs jouent 2 rotations, 5 jouent 2 rot → ok
+// Si moins : certains jouent plus
+//
+// Méthode :
+// 1. Pour chaque poste (DC/N7/N11/N9), lister les joueurs disponibles
+// 2. Affecter chaque joueur à son meilleur poste (en évitant les doublons)
+// 3. Pour chaque poste, distribuer les joueurs sur les 4 rotations
+//    - 1 joueur → joue les 4 rotations (50min, cas pénurie)
+//    - 2 joueurs → A:rot0,1 / B:rot2,3 (25min chacun)
+//    - 3 joueurs → A:rot0,1 / B:rot2,3 / C:rot0 (remplace A si C multi-poste)
+//                  sinon A:rot0,rot3 / B:rot1 / C:rot2 → A:25min B:12.5 C:12.5
+//    - 4 joueurs → chacun 1 rotation (12.5min)
+// ═══════════════════════════════════
+function buildPlan(field){
+  // Étape 1 : assigner un poste principal à chaque joueur
+  // Priorité aux postes avec peu de joueurs
+  const assigned={};        // name→pos
+  const posPool={DC:[],N7:[],N11:[],N9:[]};
+
+  // D'abord les mono-poste de champ
+  field.forEach(name=>{
+    const p=gP(name);
+    const opts=p.pos.filter(x=>x!=="GK");
+    if(opts.length===1){assigned[name]=opts[0]; posPool[opts[0]].push(name);}
+  });
+
+  // Ensuite les multi-poste → poste le moins couvert
+  field.forEach(name=>{
+    if(assigned[name])return;
+    const p=gP(name);
+    const opts=p.pos.filter(x=>x!=="GK");
+    // trier par nb joueurs assignés croissant
+    opts.sort((a,b)=>posPool[a].length-posPool[b].length);
+    assigned[name]=opts[0];
+    posPool[opts[0]].push(name);
+  });
+
+  // Vérif : tous les postes couverts ?
+  for(const pos of["DC","N7","N11","N9"]){
+    if(!posPool[pos].length) return {error:`Aucun joueur pour le poste ${POS[pos].label} (${POS[pos].num}) !`};
+  }
+
+  // Étape 2 : construire 4 rotations
+  // rotations[i] = {GK:name, DC:name, N7:name, N11:name, N9:name}
+  const rots=[{},{},{},{}];
+  rots.forEach(r=>r["GK"]="Jorvie");
+
+  const playCount={};
+  field.forEach(n=>playCount[n]=0);
+
+  ["DC","N7","N11","N9"].forEach(pos=>{
+    const pool=posPool[pos];
+    const n=pool.length;
+    let distrib; // tableau de 4 éléments → quel joueur joue cette rotation
+    if(n===0){
+      distrib=[null,null,null,null];
+    } else if(n===1){
+      // 1 joueur → joue les 4 (50 min)
+      distrib=[pool[0],pool[0],pool[0],pool[0]];
+    } else if(n===2){
+      // 2 joueurs → chacun 2 rotations (25 min)
+      distrib=[pool[0],pool[0],pool[1],pool[1]];
+    } else if(n===3){
+      // 3 joueurs → A:2rots B:1rot C:1rot
+      // Distribuer équitablement : A:rot0,3 B:rot1 C:rot2
+      distrib=[pool[0],pool[1],pool[2],pool[0]];
+    } else {
+      // 4+ joueurs → chacun 1 rotation (12.5 min)
+      distrib=[pool[0],pool[1],pool[2],pool[3]];
+    }
+    distrib.forEach((name,i)=>{
+      if(name){rots[i][pos]=name; playCount[name]=(playCount[name]||0)+1;}
+    });
+  });
+
+  // Calcul minutes
+  const minutes={"Jorvie":50};
+  field.forEach(n=>minutes[n]=Math.round((playCount[n]||0)*12.5));
+
+  const bench=field.filter(n=>!playCount[n]);
+
+  return {rots,minutes,playCount,bench,posPool,assigned};
+}
+
+// ═══════════════════════════════════
+// ALERTS
+// ═══════════════════════════════════
+function computeAlerts(){
+  if(!S.date){S.alerts=[];return;}
+  const out=[];
+  [...S.present].filter(n=>n!=="Jorvie").forEach(name=>{
+    const entries=(S.hist[name]||[]).sort((a,b)=>b.date.localeCompare(a.date));
+    if(!entries.length)return;
+    const days=daysB(entries[0].date,S.date);
+    if(days<0)return;
+    const last=fmt(entries[0].date);
+    if(days<=7)  out.push({name,type:"w",msg:`Convoqué le ${last} (${days}j) — ⚠️ fatigue !`});
+    else if(days<=14) out.push({name,type:"i",msg:`Convoqué le ${last} (${days}j) — à surveiller`});
+  });
+  S.alerts=out;
+}
+
+// ═══════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════
+function toggle(name){
+  if(gP(name).fixed)return;
+  S.present.has(name)?S.present.delete(name):S.present.add(name);
+  S.plan=null;S.saved=false;computeAlerts();renderMatch();
+}
+
+function generate(){
+  if(!S.date){alert("Choisis une date de match !");return;}
+  const field=[...S.present].filter(n=>n!=="Jorvie");
+  if(field.length<4){alert("Il faut au moins 4 joueurs de champ !");return;}
+  const sel=field.slice(0,7);
+  const extra=field.slice(7);
+  const res=buildPlan(sel);
+  if(res.error){alert(res.error);return;}
+  S.plan={...res,sel,extra};
+  S.saved=false;renderMatch();
+}
+
+function saveMatch(){
+  if(!S.plan||!S.date||S.saved)return;
+  const{sel,minutes,rots}=S.plan;
+  const absent=ALL.filter(n=>!S.present.has(n));
+  const h={...S.hist};
+  ["Jorvie",...sel].forEach(name=>{
+    if(!h[name])h[name]=[];
+    if((minutes[name]||0)>0) h[name].unshift({date:S.date,mins:minutes[name]});
+  });
+  const rec={
+    date:S.date,
+    convoked:["Jorvie",...sel].map(name=>({name,mins:minutes[name]||0})).filter(x=>x.mins>0),
+    absent,
+    rots:rots.map((r,i)=>({num:i+1,...r}))
+  };
+  S.matches=[rec,...S.matches];
+  S.hist=h;S.saved=true;
+  saveLS("accf3_h",h);saveLS("accf3_m",S.matches);
+  renderMatch();
+}
+
+function clearAll(){
+  if(!confirm("Effacer tout l'historique ?"))return;
+  S.hist={};S.matches=[];
+  saveLS("accf3_h",{});saveLS("accf3_m",[]);
+  renderHistory();
+}
+
+// ═══════════════════════════════════
+// TABS
+// ═══════════════════════════════════
+function showTab(tab){
+  S.tab=tab;
+  ["match","history","roster"].forEach((t,i)=>{
+    document.querySelectorAll(".tab-btn")[i].classList.toggle("active",t===tab);
+    document.getElementById("tab-"+t).style.display=t===tab?"":"none";
+  });
+  if(tab==="match")   renderMatch();
+  if(tab==="history") renderHistory();
+  if(tab==="roster")  renderRoster();
+}
+
+// ═══════════════════════════════════
+// RENDER MATCH
+// ═══════════════════════════════════
+function renderMatch(){
+  computeAlerts();
+  const absent=ALL.filter(n=>!S.present.has(n));
+  let h="";
+
+  // Date
+  h+=`<div class="card">
+    <label class="lbl">📅 Date du match</label>
+    <input type="date" value="${S.date}"
+      style="background:#1a2340;border:1.5px solid #2a3a6a;border-radius:8px;color:#e8eaf6;padding:9px 12px;font-size:14px;outline:none;width:100%;"
+      onchange="S.date=this.value;S.plan=null;S.saved=false;computeAlerts();renderMatch()"/>
+  </div>`;
+
+  // Présences
+  h+=`<div class="card"><label class="lbl">✅ Présents (${[...S.present].length}/11)</label><div>`;
+  ALL.forEach(name=>{
+    const p=gP(name);const pi=POS[p.pos[0]];
+    const on=S.present.has(name);
+    const al=S.alerts.find(a=>a.name===name);
+    const bc=al&&on?(al.type==="w"?"#e74c3c":"#f39c12"):(on?pi.color:"#2a2a4a");
+    h+=`<span class="pill ${on?"on":""}" style="border-color:${bc};${p.fixed?"cursor:default":""}"
+      onclick="toggle('${name}')">${pi.emoji} ${name}${p.fixed?" 🔒":""}${al&&on?(al.type==="w"?" ⚠️":" ℹ️"):""}</span>`;
+  });
+  h+=`</div>`;
+  if(absent.length) h+=`<div style="margin-top:8px;font-size:11px;color:#e74c3c">❌ Absents : ${absent.join(", ")}</div>`;
+  h+=`</div>`;
+
+  // Alerts
+  S.alerts.filter(a=>S.present.has(a.name)).forEach(a=>{
+    h+=`<div class="alert-${a.type}">${a.type==="w"?"⚠️":"ℹ️"} <strong>${a.name}</strong> : ${a.msg}</div>`;
+  });
+
+  h+=`<button class="btn-main" onclick="generate()">⚡ Générer les 4 rotations</button>`;
+
+  if(S.plan){
+    const{rots,minutes,sel,extra,bench}=S.plan;
+
+    // Temps de jeu
+    h+=`<div class="card"><label class="lbl">⏱ Temps de jeu</label>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;">`;
+    ["Jorvie",...sel].forEach(name=>{
+      const mins=minutes[name]||0;
+      const c=mins>=50?"#f39c12":mins>=25?"#2ecc71":mins>0?"#7eb6ff":"#e74c3c";
+      h+=`<span style="background:#0d1226;padding:4px 9px;border-radius:14px;font-size:11px;border:1px solid ${c}55">
+        <strong style="color:${c}">${mins}min</strong> <span style="color:#9fa8da">${name}</span>
+      </span>`;
+    });
+    h+=`</div>`;
+    if(bench.length) h+=`<div style="font-size:11px;color:#7986cb;margin-top:2px">🪑 Banc : ${bench.join(", ")}</div>`;
+    if(extra.length) h+=`<div style="font-size:11px;color:#555;margin-top:2px">Hors sélection : ${extra.join(", ")}</div>`;
+    h+=`</div>`;
+
+    // 4 Rotations
+    h+=`<div class="card"><label class="lbl">🔄 4 Rotations — Formation complète à chaque fois</label>`;
+    rots.forEach((rot,i)=>{
+      const rc=RC[i];
+      h+=`<div style="background:${rc.bg};border:2px solid ${rc.col}44;border-radius:10px;padding:12px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span style="font-size:12px;font-weight:700;color:${rc.col}">Rotation ${i+1}</span>
+          <span style="font-size:10px;background:${rc.col}22;color:${rc.col};padding:3px 8px;border-radius:8px;font-weight:700">${rc.t}</span>
+        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center;">`;
+      SLOTS.forEach(pos=>{
+        const name=rot[pos];
+        const pi=POS[pos];
+        if(!name){
+          h+=`<div style="background:#2d1010;border:1px dashed #e74c3c44;border-radius:8px;padding:8px 6px;text-align:center;min-width:58px;flex:1">
+            <div style="font-size:11px;color:#e74c3c">❌</div>
+            <div style="font-size:9px;color:#e74c3c">${pi.num}</div>
+          </div>`;
+        } else {
+          h+=`<div style="background:${pi.bg};border:2px solid ${pi.color}66;border-radius:8px;padding:8px 6px;text-align:center;min-width:58px;flex:1">
+            <div style="font-size:16px">${pi.emoji}</div>
+            <div style="font-size:11px;font-weight:700;color:${pi.color};margin-top:2px">${name}</div>
+            <div style="font-size:9px;color:${pi.color}88">${pi.num}</div>
+          </div>`;
+        }
+      });
+      h+=`</div></div>`;
+    });
+    h+=`</div>`;
+
+    h+=`<button class="btn-save" onclick="saveMatch()" ${S.saved?"disabled":""}>
+      ${S.saved?"✅ Match enregistré !":"💾 Valider et enregistrer ce match"}
+    </button>`;
+  }
+
+  document.getElementById("tab-match").innerHTML=h;
+}
+
+// ═══════════════════════════════════
+// RENDER HISTORY
+// ═══════════════════════════════════
+function renderHistory(){
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h2 style="font-size:15px;color:#9fa8da">📋 ${S.matches.length} match${S.matches.length>1?"s":""}</h2>
+    ${S.matches.length?`<button class="btn-danger" onclick="clearAll()">🗑️ Effacer</button>`:""}
+  </div>`;
+
+  if(!S.matches.length){
+    h+=`<div style="text-align:center;color:#555;padding:40px"><div style="font-size:36px;margin-bottom:8px">📭</div>Aucun match enregistré</div>`;
+    document.getElementById("tab-history").innerHTML=h;return;
+  }
+
+  // Stats joueurs
+  h+=`<div class="card"><label class="lbl">👤 Stats par joueur</label>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(138px,1fr));gap:7px;">`;
+  ALL.forEach(name=>{
+    const entries=S.hist[name]||[];
+    const pi=POS[gP(name).pos[0]];
+    const total=entries.reduce((s,e)=>s+(e.mins||0),0);
+    h+=`<div style="background:#0d1226;border-radius:9px;padding:9px;border-left:3px solid ${pi.color}">
+      <div style="font-weight:700;font-size:11px;margin-bottom:2px">${pi.emoji} ${name}</div>
+      <div style="font-size:10px;color:#7986cb">${entries.length} convoc. · ${total}min</div>
+      <div style="font-size:10px;color:#555">${entries.length?fmt(entries[0].date):"—"}</div>
+    </div>`;
+  });
+  h+=`</div></div>`;
+
+  // Matchs
+  S.matches.forEach(m=>{
+    h+=`<div class="card">
+      <div style="font-weight:700;color:#7eb6ff;font-size:13px;margin-bottom:10px">📅 ${fmt(m.date)}</div>`;
+
+    // Convoqués
+    h+=`<label class="lbl" style="margin-bottom:5px">✅ Convoqués (${m.convoked.length})</label>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">`;
+    m.convoked.forEach(c=>{
+      const pi=POS[gP(c.name).pos[0]];
+      const mc=c.mins>=50?"#f39c12":c.mins>=25?"#2ecc71":"#7eb6ff";
+      h+=`<span style="background:#1a2a4a;padding:4px 8px;border-radius:12px;font-size:11px;border:1px solid ${pi.color}33">
+        ${pi.emoji} <strong>${c.name}</strong> <span style="color:${mc}">${c.mins}min</span>
+      </span>`;
+    });
+    h+=`</div>`;
+
+    // Absents
+    if(m.absent&&m.absent.length){
+      h+=`<label class="lbl" style="color:#e74c3c;margin-bottom:4px">❌ Absents (${m.absent.length})</label>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;">`;
+      m.absent.forEach(name=>{
+        const pi=POS[gP(name).pos[0]];
+        h+=`<span style="background:#2d1010;padding:3px 8px;border-radius:12px;font-size:11px;border:1px solid #e74c3c22;color:#ff8a80">${pi.emoji} ${name}</span>`;
+      });
+      h+=`</div>`;
+    } else {
+      h+=`<div style="font-size:11px;color:#2ecc71">✅ Tout le monde présent !</div>`;
+    }
+
+    // Rotations
+    if(m.rots){
+      h+=`<details style="margin-top:10px"><summary style="font-size:11px;color:#7986cb;cursor:pointer">Voir les rotations ▾</summary>
+        <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;">`;
+      m.rots.forEach((rot,i)=>{
+        const rc=RC[i];
+        h+=`<div style="background:${rc.bg};border:1px solid ${rc.col}44;border-radius:8px;padding:8px;">
+          <div style="font-size:10px;color:${rc.col};font-weight:700;margin-bottom:5px">R${rot.num} · ${rc.t}</div>`;
+        SLOTS.forEach(pos=>{
+          if(rot[pos]){const pi=POS[pos];h+=`<div style="font-size:10px;color:#9fa8da">${pi.emoji} <strong>${rot[pos]}</strong> <span style="color:${pi.color}">${pi.num}</span></div>`;}
+        });
+        h+=`</div>`;
+      });
+      h+=`</div></details>`;
+    }
+    h+=`</div>`;
+  });
+
+  document.getElementById("tab-history").innerHTML=h;
+}
+
+// ═══════════════════════════════════
+// RENDER ROSTER
+// ═══════════════════════════════════
+function renderRoster(){
+  let h=`<h2 style="font-size:15px;color:#9fa8da;margin-bottom:12px">👥 Effectif & postes</h2>`;
+
+  // Schéma formation
+  h+=`<div class="card"><label class="lbl">🏟️ Formation — 1·1·2·1</label>
+    <div style="background:linear-gradient(180deg,#0d2e0d,#0a1a0a);border-radius:10px;padding:14px 8px;border:2px solid #1a5c1a;">`;
+  [["N9"],["N7","N11"],["DC"],["GK"]].forEach(row=>{
+    h+=`<div style="display:flex;justify-content:center;gap:10px;margin:5px 0;">`;
+    row.forEach(pos=>{
+      const pi=POS[pos];
+      h+=`<div style="background:${pi.bg};border:2px solid ${pi.color};border-radius:8px;padding:7px 14px;text-align:center;min-width:70px">
+        <div style="font-size:14px">${pi.emoji}</div>
+        <div style="font-size:11px;font-weight:700;color:${pi.color}">${pi.num}</div>
+        <div style="font-size:9px;color:${pi.color}88">${pi.label}</div>
+      </div>`;
+    });
+    h+=`</div>`;
+  });
+  h+=`</div></div>`;
+
+  const byPos={GK:[],DC:[],N7:[],N11:[],N9:[]};
+  PLAYERS.forEach(p=>p.pos.forEach(pos=>{if(byPos[pos])byPos[pos].push(p);}));
+  SLOTS.forEach(pos=>{
+    const players=byPos[pos]; const pi=POS[pos];
+    h+=`<div class="card" style="border-left:4px solid ${pi.color}">
+      <label class="lbl" style="color:${pi.color}">${pi.emoji} ${pi.label} — ${pi.num}</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">`;
+    players.forEach(p=>{
+      h+=`<div style="background:#0d1226;border-radius:8px;padding:6px 11px;border:1px solid ${pi.color}33;font-size:12px">
+        <strong>${p.name}</strong>
+        ${p.fixed?'<span style="font-size:9px;color:#f39c12;margin-left:3px">🔒</span>':""}
+        ${p.pos.length>1?'<span style="font-size:9px;color:#a78bfa;margin-left:3px">✦</span>':""}
+      </div>`;
+    });
+    h+=`</div></div>`;
+  });
+
+  h+=`<div class="green-note">
+    ✦ <strong>Raf</strong> : DC (n°3) · Ailier G (n°7) · Ailier D (n°11)<br>
+    ✦ <strong>Mathias</strong> : Ailier D (n°11) · Attaquant (n°9)<br>
+    Postes adaptés automatiquement selon les besoins de la compo.
+  </div>`;
+
+  document.getElementById("tab-roster").innerHTML=h;
+}
+
+// INIT
+computeAlerts();renderMatch();
+</script>
+</body>
+</html>
