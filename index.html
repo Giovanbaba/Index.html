@@ -4,8 +4,8 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
-<meta name="apple-mobile-web-app-title" content="ACCF Football HOUDENG"/>
-<title>⚽ ACCF – Rotations ACCF Football HOUDENG U9B</title>
+<meta name="apple-mobile-web-app-title" content="ACCF Football"/>
+<title>⚽ ACCF Football HOUDENG – Rotations U9B</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:#0a0e1a;color:#e8eaf6;font-family:'Trebuchet MS',sans-serif;min-height:100vh;padding-bottom:80px;}
@@ -13,7 +13,7 @@ button{cursor:pointer;font-family:'Trebuchet MS',sans-serif;}
 input[type=date]{color-scheme:dark;font-family:'Trebuchet MS',sans-serif;}
 #header{background:linear-gradient(135deg,#1a237e,#283593);padding:18px 16px 12px;border-bottom:3px solid #3949ab;}
 #header .sub{font-size:10px;letter-spacing:3px;color:#7986cb;margin-bottom:4px;text-transform:uppercase;}
-#header h1{font-size:20px;font-weight:700;color:#fff;margin-bottom:3px;}
+#header h1{font-size:19px;font-weight:700;color:#fff;margin-bottom:3px;}
 #header .desc{font-size:10px;color:#9fa8da;}
 #tabs{background:#0d1226;border-bottom:1px solid #1a2040;display:flex;}
 .tab-btn{flex:1;padding:10px 2px;background:transparent;color:#7986cb;border:none;font-size:11px;border-bottom:2px solid transparent;transition:all .2s;}
@@ -34,9 +34,9 @@ input[type=date]{color-scheme:dark;font-family:'Trebuchet MS',sans-serif;}
 </head>
 <body>
 <div id="header">
-  <div class="sub">⚽ ACCF Football HOUDENG 5v5 · ACCF</div>
+  <div class="sub">⚽ ACCF Football HOUDENG · U9B · 5v5</div>
   <h1>Gestionnaire Rotations</h1>
-  <div class="desc">Formation fixe : GK · n°3 · n°7 · n°11 · n°9 — 4 rotations × 12min30</div>
+  <div class="desc">Formation : GK · n°3 · n°7 · n°11 · n°9 — 4 rotations × 12min30 — min. 25min/joueur</div>
 </div>
 <div id="tabs">
   <button class="tab-btn active" onclick="showTab('match')">🗓️ Match</button>
@@ -49,23 +49,25 @@ input[type=date]{color-scheme:dark;font-family:'Trebuchet MS',sans-serif;}
   <div id="tab-roster" style="display:none"></div>
 </div>
 <script>
-// ═══════════════════════════════════
-// DONNÉES
+// ═══════════════════════════════════════════════════════
+// JOUEURS & POSTES
 // Postes : GK · DC (n°3) · N7 (ailier G) · N11 (ailier D) · N9 (attaquant)
-// ═══════════════════════════════════
+// Un joueur multi-poste peut couvrir n'importe lequel de ses postes
+// ═══════════════════════════════════════════════════════
 const PLAYERS=[
-  {name:"Jorvie", pos:["GK"],          fixed:true},
+  {name:"Jorvie", pos:["GK"],               fixed:true},
   {name:"Tessio", pos:["DC"]},
-  {name:"Raf",    pos:["DC","N7","N11"]},
+  {name:"Raf",    pos:["DC","N7","N11","N9"]},  // très polyvalent
   {name:"Ricardo",pos:["DC"]},
   {name:"Aidan",  pos:["DC"]},
   {name:"Sandro", pos:["N7","N11"]},
   {name:"Dario",  pos:["N7","N11"]},
   {name:"Thymao", pos:["N7","N11"]},
   {name:"Noam",   pos:["N7","N11"]},
-  {name:"Mathias",pos:["N11","N9"]},
+  {name:"Mathias",pos:["N7","N11","N9"]},   // peut jouer N9
   {name:"Isaac",  pos:["N9"]},
 ];
+
 const ALL=PLAYERS.map(p=>p.name);
 const SLOTS=["GK","DC","N7","N11","N9"];
 const POS={
@@ -88,122 +90,174 @@ function fmt(ds){if(!ds)return"";const[y,m,d]=ds.split("-");return`${d}/${m}/${y
 function daysB(d1,d2){return Math.round((new Date(d2)-new Date(d1))/(864e5));}
 function loadLS(k,d){try{return JSON.parse(localStorage.getItem(k))||d;}catch{return d;}}
 function saveLS(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
 const S={
   tab:"match",date:"",present:new Set(ALL),
-  hist:loadLS("accf3_h",{}),matches:loadLS("accf3_m",[]),
+  hist:loadLS("accf4_h",{}),matches:loadLS("accf4_m",[]),
   plan:null,alerts:[],saved:false
 };
 
-// ═══════════════════════════════════
-// ALGORITHME : 4 rotations valides
+// ═══════════════════════════════════════════════════════
+// ALGORITHME PRINCIPAL
 //
-// Règle : chaque rotation = exactement 1 joueur par poste (GK·DC·N7·N11·N9)
-// Jorvie joue toutes les rotations (GK fixe, 50min)
-// 7 joueurs de champ → distribués sur 4×4 slots = 16 slots
-// Chaque joueur joue 2 rotations = 25min (idéal)
-// Si 7 joueurs : 7×2=14 slots → 2 joueurs jouent 2 rotations, 5 jouent 2 rot → ok
-// Si moins : certains jouent plus
+// OBJECTIF : construire 4 rotations complètes (GK·DC·N7·N11·N9)
+// où chaque équipe est ENTIÈREMENT différente de la précédente.
+// Chaque joueur de champ joue exactement 2 rotations = 25 min.
+// Jorvie joue les 4 rotations = 50 min.
 //
-// Méthode :
-// 1. Pour chaque poste (DC/N7/N11/N9), lister les joueurs disponibles
-// 2. Affecter chaque joueur à son meilleur poste (en évitant les doublons)
-// 3. Pour chaque poste, distribuer les joueurs sur les 4 rotations
-//    - 1 joueur → joue les 4 rotations (50min, cas pénurie)
-//    - 2 joueurs → A:rot0,1 / B:rot2,3 (25min chacun)
-//    - 3 joueurs → A:rot0,1 / B:rot2,3 / C:rot0 (remplace A si C multi-poste)
-//                  sinon A:rot0,rot3 / B:rot1 / C:rot2 → A:25min B:12.5 C:12.5
-//    - 4 joueurs → chacun 1 rotation (12.5min)
-// ═══════════════════════════════════
+// APPROCHE : 
+// On a N joueurs de champ (max 8). On doit remplir 4 rotations × 4 postes = 16 slots.
+// Chaque joueur joue 2 slots → il faut exactement 8 joueurs pour couvrir sans chevauchement.
+// Avec 7 joueurs → un joueur joue 3 rotations (37.5 min, toléré).
+// Avec <7 → certains jouent 3 ou 4 rotations.
+//
+// MÉTHODE :
+// 1. Construire 2 équipes A et B (chacune joue 2 rotations consécutives)
+//    Équipe A : rotations 1 et 2 (0→25 min)
+//    Équipe B : rotations 3 et 4 (25→50 min)
+//    → garantit que A et B sont totalement différentes
+//    → chaque joueur dans A joue 25 min, idem B
+// 2. Chaque équipe doit avoir : 1 DC + 1 N7 + 1 N11 + 1 N9
+// 3. Affecter les joueurs aux équipes en respectant leurs postes
+// ═══════════════════════════════════════════════════════
 function buildPlan(field){
-  // Étape 1 : assigner un poste principal à chaque joueur
-  // Règle : tous les postes DOIVENT être couverts. Les multi-postes comblent les trous.
-  const assigned={};
-  const posPool={DC:[],N7:[],N11:[],N9:[]};
+  // field = joueurs de champ présents (sans Jorvie), max 8 sélectionnés
 
-  // Pass 1 : mono-poste de champ → assignés directement
-  field.forEach(name=>{
-    const p=gP(name);
-    const opts=p.pos.filter(x=>x!=="GK");
-    if(opts.length===1){assigned[name]=opts[0]; posPool[opts[0]].push(name);}
-  });
-
-  // Pass 2 : multi-postes → d'abord combler les postes vides, ensuite les moins couverts
-  field.forEach(name=>{
-    if(assigned[name])return;
-    const p=gP(name);
-    const opts=p.pos.filter(x=>x!=="GK");
-    // Priorité absolue aux postes vides
-    const empty=opts.filter(x=>posPool[x].length===0);
-    const target=empty.length>0
-      ? empty[0]
-      : opts.sort((a,b)=>posPool[a].length-posPool[b].length)[0];
-    assigned[name]=target;
-    posPool[target].push(name);
-  });
-
-  // Pass 3 : si un poste est encore vide, chercher un joueur multi-poste déjà assigné
-  // ailleurs qui peut le couvrir, et le déplacer (en dupliquant si nécessaire)
-  ["DC","N7","N11","N9"].forEach(pos=>{
-    if(posPool[pos].length>0)return;
-    // Trouver un joueur qui peut jouer ce poste mais est assigné ailleurs
-    const candidate=field.find(name=>can(name,pos)&&assigned[name]!==pos);
-    if(candidate){
-      // Ajouter ce joueur aussi dans ce poste (il couvre les deux)
-      posPool[pos].push(candidate);
-    }
-  });
-
-  // Vérif finale : si toujours vide, vraiment impossible
+  // ── Étape 1 : vérifier qu'on peut couvrir tous les postes ──
+  const fieldSet=new Set(field);
   for(const pos of["DC","N7","N11","N9"]){
-    if(!posPool[pos].length) return {error:`Impossible de couvrir le poste ${POS[pos].label} (${POS[pos].num}) avec les joueurs présents.`};
+    const ok=field.some(n=>can(n,pos));
+    if(!ok) return {error:`Aucun joueur disponible pour le poste ${POS[pos].label} (${POS[pos].num}) avec les présents.`};
   }
 
-  // Étape 2 : construire 4 rotations
-  // rotations[i] = {GK:name, DC:name, N7:name, N11:name, N9:name}
-  const rots=[{},{},{},{}];
-  rots.forEach(r=>r["GK"]="Jorvie");
+  // ── Étape 2 : diviser en 2 groupes de 4 (équipe A et B) ──
+  // On essaie de former 2 groupes équilibrés par poste
+  // Chaque groupe doit pouvoir aligner DC + N7 + N11 + N9
+  
+  let teamA=[], teamB=[];
+  let bestSplit=null;
 
-  const playCount={};
-  field.forEach(n=>playCount[n]=0);
+  // Tenter de trouver une division A/B valide
+  // Pour 8 joueurs : 4 et 4. Pour 7 : 4 et 3 (le groupe de 3 empruntera 1 joueur)
+  // On essaie plusieurs combinaisons (force brute limitée sur 8 joueurs max)
+  
+  function isValidTeam(team){
+    return ["DC","N7","N11","N9"].every(pos=>team.some(n=>can(n,pos)));
+  }
 
-  ["DC","N7","N11","N9"].forEach(pos=>{
-    const pool=posPool[pos];
-    const n=pool.length;
-    let distrib; // tableau de 4 éléments → quel joueur joue cette rotation
-    if(n===0){
-      distrib=[null,null,null,null];
-    } else if(n===1){
-      // 1 joueur → joue les 4 (50 min)
-      distrib=[pool[0],pool[0],pool[0],pool[0]];
-    } else if(n===2){
-      // 2 joueurs → chacun 2 rotations (25 min)
-      distrib=[pool[0],pool[0],pool[1],pool[1]];
-    } else if(n===3){
-      // 3 joueurs → A:2rots B:1rot C:1rot
-      // Distribuer équitablement : A:rot0,3 B:rot1 C:rot2
-      distrib=[pool[0],pool[1],pool[2],pool[0]];
-    } else {
-      // 4+ joueurs → chacun 1 rotation (12.5 min)
-      distrib=[pool[0],pool[1],pool[2],pool[3]];
+  function assignPosToTeam(team){
+    // Assigner exactement 1 joueur par poste dans une équipe de 4
+    // Retourne {DC:name, N7:name, N11:name, N9:name} ou null si impossible
+    const posToFill=["DC","N7","N11","N9"];
+    const used=new Set();
+    const result={};
+    
+    // Essayer par backtracking simple
+    function bt(idx){
+      if(idx===posToFill.length) return true;
+      const pos=posToFill[idx];
+      for(const name of team){
+        if(!used.has(name)&&can(name,pos)){
+          used.add(name);
+          result[pos]=name;
+          if(bt(idx+1)) return true;
+          used.delete(name);
+          delete result[pos];
+        }
+      }
+      return false;
     }
-    distrib.forEach((name,i)=>{
-      if(name){rots[i][pos]=name; playCount[name]=(playCount[name]||0)+1;}
-    });
-  });
+    return bt(0)?result:null;
+  }
+
+  // Générer les combinaisons de taille 4 parmi field
+  const n=field.length;
+  const targetA=Math.min(4,Math.ceil(n/2));
+  
+  // Combinaisons de targetA éléments parmi field
+  function* combos(arr,k){
+    if(k===0){yield[];return;}
+    for(let i=0;i<=arr.length-k;i++){
+      for(const rest of combos(arr.slice(i+1),k-1)){
+        yield[arr[i],...rest];
+      }
+    }
+  }
+
+  for(const cA of combos(field,targetA)){
+    if(!isValidTeam(cA)) continue;
+    const cB=field.filter(x=>!cA.includes(x));
+    // cB doit aussi être valide ou on peut compléter avec 1 joueur de cA si cB<4
+    if(cB.length<4){
+      // Besoin d'un joueur en double entre A et B
+      // Ajouter le joueur de cA le plus polyvalent qui peut combler le poste manquant
+      const missingPos=["DC","N7","N11","N9"].find(pos=>!cB.some(n=>can(n,pos)));
+      if(!missingPos){
+        // cB est valide même à 3 joueurs, on va lui prêter 1 joueur de cA
+        const extra=cA.find(n=>!cB.some(m=>m===n));
+        const cBext=[...cB,extra];
+        const assA=assignPosToTeam(cA);
+        const assB=assignPosToTeam(cBext);
+        if(assA&&assB){bestSplit={teamA:cA,teamB:cBext,assA,assB,shared:extra};break;}
+      } else {
+        const helper=cA.find(n=>can(n,missingPos));
+        if(helper){
+          const cBext=[...cB,helper];
+          if(isValidTeam(cBext)){
+            const assA=assignPosToTeam(cA);
+            const assB=assignPosToTeam(cBext);
+            if(assA&&assB){bestSplit={teamA:cA,teamB:cBext,assA,assB,shared:helper};break;}
+          }
+        }
+      }
+    } else {
+      if(!isValidTeam(cB)) continue;
+      const assA=assignPosToTeam(cA);
+      const assB=assignPosToTeam(cB);
+      if(assA&&assB){bestSplit={teamA:cA,teamB:cB,assA,assB,shared:null};break;}
+    }
+  }
+
+  if(!bestSplit) return {error:"Impossible de former 2 équipes équilibrées avec les joueurs présents."};
+
+  const{teamA:tA,teamB:tB,assA,assB,shared}=bestSplit;
+
+  // ── Étape 3 : construire les 4 rotations ──
+  // Rotations 1 & 2 : équipe A (avec Jorvie)
+  // Rotations 3 & 4 : équipe B (avec Jorvie)
+  // Chaque équipe joue 2 fois → chaque joueur 25 min
+  // Exception : le joueur "shared" joue dans les 2 équipes → 50 min (noté)
+
+  const rot1={GK:"Jorvie",...assA};
+  const rot2={GK:"Jorvie",...assA};  // même équipe
+  const rot3={GK:"Jorvie",...assB};
+  const rot4={GK:"Jorvie",...assB};  // même équipe
+  const rots=[rot1,rot2,rot3,rot4];
 
   // Calcul minutes
+  const playCount={};
+  field.forEach(n=>playCount[n]=0);
+  // Chaque joueur dans assA joue rot1+rot2 = 2 rotations = 25 min
+  Object.values(assA).forEach(n=>playCount[n]=(playCount[n]||0)+2);
+  // Chaque joueur dans assB joue rot3+rot4 = 2 rotations = 25 min
+  Object.values(assB).forEach(n=>playCount[n]=(playCount[n]||0)+2);
+
   const minutes={"Jorvie":50};
   field.forEach(n=>minutes[n]=Math.round((playCount[n]||0)*12.5));
 
+  // Joueurs pas du tout utilisés
   const bench=field.filter(n=>!playCount[n]);
 
-  return {rots,minutes,playCount,bench,posPool,assigned};
+  // Info sur joueur partagé entre les 2 équipes
+  const sharedInfo=shared?`⚠️ ${shared} joue dans les 2 équipes (env. 50 min) car il était nécessaire pour couvrir un poste.`:null;
+
+  return {rots,minutes,playCount,bench,tA,tB,assA,assB,shared,sharedInfo};
 }
 
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 // ALERTS
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 function computeAlerts(){
   if(!S.date){S.alerts=[];return;}
   const out=[];
@@ -219,9 +273,9 @@ function computeAlerts(){
   S.alerts=out;
 }
 
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 // ACTIONS
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 function toggle(name){
   if(gP(name).fixed)return;
   S.present.has(name)?S.present.delete(name):S.present.add(name);
@@ -232,8 +286,8 @@ function generate(){
   if(!S.date){alert("Choisis une date de match !");return;}
   const field=[...S.present].filter(n=>n!=="Jorvie");
   if(field.length<4){alert("Il faut au moins 4 joueurs de champ !");return;}
-  const sel=field.slice(0,7);
-  const extra=field.slice(7);
+  const sel=field.slice(0,8);  // max 8 joueurs de champ
+  const extra=field.slice(8);
   const res=buildPlan(sel);
   if(res.error){alert(res.error);return;}
   S.plan={...res,sel,extra};
@@ -257,20 +311,20 @@ function saveMatch(){
   };
   S.matches=[rec,...S.matches];
   S.hist=h;S.saved=true;
-  saveLS("accf3_h",h);saveLS("accf3_m",S.matches);
+  saveLS("accf4_h",h);saveLS("accf4_m",S.matches);
   renderMatch();
 }
 
 function clearAll(){
   if(!confirm("Effacer tout l'historique ?"))return;
   S.hist={};S.matches=[];
-  saveLS("accf3_h",{});saveLS("accf3_m",[]);
+  saveLS("accf4_h",{});saveLS("accf4_m",[]);
   renderHistory();
 }
 
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 // TABS
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 function showTab(tab){
   S.tab=tab;
   ["match","history","roster"].forEach((t,i)=>{
@@ -282,9 +336,9 @@ function showTab(tab){
   if(tab==="roster")  renderRoster();
 }
 
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 // RENDER MATCH
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 function renderMatch(){
   computeAlerts();
   const absent=ALL.filter(n=>!S.present.has(n));
@@ -312,7 +366,6 @@ function renderMatch(){
   if(absent.length) h+=`<div style="margin-top:8px;font-size:11px;color:#e74c3c">❌ Absents : ${absent.join(", ")}</div>`;
   h+=`</div>`;
 
-  // Alerts
   S.alerts.filter(a=>S.present.has(a.name)).forEach(a=>{
     h+=`<div class="alert-${a.type}">${a.type==="w"?"⚠️":"ℹ️"} <strong>${a.name}</strong> : ${a.msg}</div>`;
   });
@@ -320,7 +373,32 @@ function renderMatch(){
   h+=`<button class="btn-main" onclick="generate()">⚡ Générer les 4 rotations</button>`;
 
   if(S.plan){
-    const{rots,minutes,sel,extra,bench}=S.plan;
+    const{rots,minutes,sel,extra,bench,tA,tB,assA,assB,shared,sharedInfo}=S.plan;
+
+    // Résumé équipes
+    h+=`<div class="card">
+      <label class="lbl">👥 Équipe A (rot. 1-2 · 0→25 min) vs Équipe B (rot. 3-4 · 25→50 min)</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">`;
+    [{label:"🔵 Équipe A",ass:assA,col:"#2196f3"},{label:"🟣 Équipe B",ass:assB,col:"#9c27b0"}].forEach(({label,ass,col})=>{
+      h+=`<div style="background:#0d1226;border-radius:10px;padding:10px;border:1px solid ${col}44;">
+        <div style="font-size:11px;font-weight:700;color:${col};margin-bottom:8px">${label}</div>`;
+      SLOTS.filter(p=>p!=="GK").forEach(pos=>{
+        const name=ass[pos];
+        if(!name)return;
+        const pi=POS[pos];
+        const isShared=name===shared;
+        h+=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:4px;">
+          <span>${pi.emoji}</span>
+          <span style="font-size:11px;font-weight:700">${name}</span>
+          <span style="font-size:9px;color:${pi.color};margin-left:auto">${pi.num}</span>
+          ${isShared?`<span style="font-size:9px;color:#f39c12">★</span>`:""}
+        </div>`;
+      });
+      h+=`</div>`;
+    });
+    h+=`</div>`;
+    if(sharedInfo) h+=`<div style="margin-top:8px;font-size:11px;color:#f39c12;background:#2a1a00;padding:7px 10px;border-radius:7px">★ ${sharedInfo}</div>`;
+    h+=`</div>`;
 
     // Temps de jeu
     h+=`<div class="card"><label class="lbl">⏱ Temps de jeu</label>
@@ -334,16 +412,17 @@ function renderMatch(){
     });
     h+=`</div>`;
     if(bench.length) h+=`<div style="font-size:11px;color:#7986cb;margin-top:2px">🪑 Banc : ${bench.join(", ")}</div>`;
-    if(extra.length) h+=`<div style="font-size:11px;color:#555;margin-top:2px">Hors sélection : ${extra.join(", ")}</div>`;
+    if(extra.length) h+=`<div style="font-size:11px;color:#555;margin-top:2px">Hors sélection (9+) : ${extra.join(", ")}</div>`;
     h+=`</div>`;
 
-    // 4 Rotations
-    h+=`<div class="card"><label class="lbl">🔄 4 Rotations — Formation complète à chaque fois</label>`;
+    // 4 Rotations détail
+    h+=`<div class="card"><label class="lbl">🔄 4 Rotations — Équipe complète change toutes les 12min30</label>`;
     rots.forEach((rot,i)=>{
       const rc=RC[i];
+      const teamLabel=i<2?"🔵 Équipe A":"🟣 Équipe B";
       h+=`<div style="background:${rc.bg};border:2px solid ${rc.col}44;border-radius:10px;padding:12px;margin-bottom:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <span style="font-size:12px;font-weight:700;color:${rc.col}">Rotation ${i+1}</span>
+          <span style="font-size:12px;font-weight:700;color:${rc.col}">Rotation ${i+1} · ${teamLabel}</span>
           <span style="font-size:10px;background:${rc.col}22;color:${rc.col};padding:3px 8px;border-radius:8px;font-weight:700">${rc.t}</span>
         </div>
         <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center;">`;
@@ -351,13 +430,13 @@ function renderMatch(){
         const name=rot[pos];
         const pi=POS[pos];
         if(!name){
-          h+=`<div style="background:#2d1010;border:1px dashed #e74c3c44;border-radius:8px;padding:8px 6px;text-align:center;min-width:58px;flex:1">
+          h+=`<div style="background:#2d1010;border:1px dashed #e74c3c44;border-radius:8px;padding:8px 6px;text-align:center;min-width:55px;flex:1">
             <div style="font-size:11px;color:#e74c3c">❌</div>
             <div style="font-size:9px;color:#e74c3c">${pi.num}</div>
           </div>`;
         } else {
-          h+=`<div style="background:${pi.bg};border:2px solid ${pi.color}66;border-radius:8px;padding:8px 6px;text-align:center;min-width:58px;flex:1">
-            <div style="font-size:16px">${pi.emoji}</div>
+          h+=`<div style="background:${pi.bg};border:2px solid ${pi.color}66;border-radius:8px;padding:8px 5px;text-align:center;min-width:55px;flex:1">
+            <div style="font-size:15px">${pi.emoji}</div>
             <div style="font-size:11px;font-weight:700;color:${pi.color};margin-top:2px">${name}</div>
             <div style="font-size:9px;color:${pi.color}88">${pi.num}</div>
           </div>`;
@@ -375,13 +454,13 @@ function renderMatch(){
   document.getElementById("tab-match").innerHTML=h;
 }
 
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 // RENDER HISTORY
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 function renderHistory(){
   let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <h2 style="font-size:15px;color:#9fa8da">📋 ${S.matches.length} match${S.matches.length>1?"s":""}</h2>
-    ${S.matches.length?`<button class="btn-danger" onclick="clearAll()">🗑️ Effacer</button>`:""}
+    ${S.matches.length?`<button class="btn-danger" onclick="clearAll()">🗑️ Tout effacer</button>`:""}
   </div>`;
 
   if(!S.matches.length){
@@ -404,12 +483,9 @@ function renderHistory(){
   });
   h+=`</div></div>`;
 
-  // Matchs
   S.matches.forEach(m=>{
     h+=`<div class="card">
       <div style="font-weight:700;color:#7eb6ff;font-size:13px;margin-bottom:10px">📅 ${fmt(m.date)}</div>`;
-
-    // Convoqués
     h+=`<label class="lbl" style="margin-bottom:5px">✅ Convoqués (${m.convoked.length})</label>
       <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">`;
     m.convoked.forEach(c=>{
@@ -420,8 +496,6 @@ function renderHistory(){
       </span>`;
     });
     h+=`</div>`;
-
-    // Absents
     if(m.absent&&m.absent.length){
       h+=`<label class="lbl" style="color:#e74c3c;margin-bottom:4px">❌ Absents (${m.absent.length})</label>
         <div style="display:flex;flex-wrap:wrap;gap:4px;">`;
@@ -433,8 +507,6 @@ function renderHistory(){
     } else {
       h+=`<div style="font-size:11px;color:#2ecc71">✅ Tout le monde présent !</div>`;
     }
-
-    // Rotations
     if(m.rots){
       h+=`<details style="margin-top:10px"><summary style="font-size:11px;color:#7986cb;cursor:pointer">Voir les rotations ▾</summary>
         <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;">`;
@@ -442,26 +514,21 @@ function renderHistory(){
         const rc=RC[i];
         h+=`<div style="background:${rc.bg};border:1px solid ${rc.col}44;border-radius:8px;padding:8px;">
           <div style="font-size:10px;color:${rc.col};font-weight:700;margin-bottom:5px">R${rot.num} · ${rc.t}</div>`;
-        SLOTS.forEach(pos=>{
-          if(rot[pos]){const pi=POS[pos];h+=`<div style="font-size:10px;color:#9fa8da">${pi.emoji} <strong>${rot[pos]}</strong> <span style="color:${pi.color}">${pi.num}</span></div>`;}
-        });
+        SLOTS.forEach(pos=>{if(rot[pos]){const pi=POS[pos];h+=`<div style="font-size:10px;color:#9fa8da">${pi.emoji} <strong>${rot[pos]}</strong> <span style="color:${pi.color}">${pi.num}</span></div>`;}});
         h+=`</div>`;
       });
       h+=`</div></details>`;
     }
     h+=`</div>`;
   });
-
   document.getElementById("tab-history").innerHTML=h;
 }
 
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 // RENDER ROSTER
-// ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════
 function renderRoster(){
   let h=`<h2 style="font-size:15px;color:#9fa8da;margin-bottom:12px">👥 Effectif & postes</h2>`;
-
-  // Schéma formation
   h+=`<div class="card"><label class="lbl">🏟️ Formation — 1·1·2·1</label>
     <div style="background:linear-gradient(180deg,#0d2e0d,#0a1a0a);border-radius:10px;padding:14px 8px;border:2px solid #1a5c1a;">`;
   [["N9"],["N7","N11"],["DC"],["GK"]].forEach(row=>{
@@ -477,11 +544,10 @@ function renderRoster(){
     h+=`</div>`;
   });
   h+=`</div></div>`;
-
   const byPos={GK:[],DC:[],N7:[],N11:[],N9:[]};
   PLAYERS.forEach(p=>p.pos.forEach(pos=>{if(byPos[pos])byPos[pos].push(p);}));
   SLOTS.forEach(pos=>{
-    const players=byPos[pos]; const pi=POS[pos];
+    const players=byPos[pos];const pi=POS[pos];
     h+=`<div class="card" style="border-left:4px solid ${pi.color}">
       <label class="lbl" style="color:${pi.color}">${pi.emoji} ${pi.label} — ${pi.num}</label>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">`;
@@ -494,17 +560,14 @@ function renderRoster(){
     });
     h+=`</div></div>`;
   });
-
   h+=`<div class="green-note">
-    ✦ <strong>Raf</strong> : DC (n°3) · Ailier G (n°7) · Ailier D (n°11)<br>
-    ✦ <strong>Mathias</strong> : Ailier D (n°11) · Attaquant (n°9)<br>
+    ✦ <strong>Raf</strong> : DC (n°3) · Ailier G (n°7) · Ailier D (n°11) · Attaquant (n°9)<br>
+    ✦ <strong>Mathias</strong> : Ailier G (n°7) · Ailier D (n°11) · Attaquant (n°9)<br>
     Postes adaptés automatiquement selon les besoins de la compo.
   </div>`;
-
   document.getElementById("tab-roster").innerHTML=h;
 }
 
-// INIT
 computeAlerts();renderMatch();
 </script>
 </body>
