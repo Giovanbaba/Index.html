@@ -36,7 +36,7 @@ input[type=date]{color-scheme:dark;font-family:'Trebuchet MS',sans-serif;}
 <div id="header">
   <div class="sub">⚽ ACCF Football HOUDENG · U9B · 5v5</div>
   <h1>Gestionnaire Rotations</h1>
-  <div class="desc">Formation : GK · n°3 · n°7 · n°11 · n°9 — 4 rotations × 12min30 — min. 25min/joueur</div>
+  <div class="desc">Formation : GK · n°3 · n°7 · n°11 · n°9 — 4 rotations × 12min30 — min. 25min/joueur by Fragapane G.</div>
 </div>
 <div id="tabs">
   <button class="tab-btn active" onclick="showTab('match')">🗓️ Match</button>
@@ -50,21 +50,20 @@ input[type=date]{color-scheme:dark;font-family:'Trebuchet MS',sans-serif;}
 </div>
 <script>
 // ═══════════════════════════════════════════════════════
-// JOUEURS & POSTES
-// Postes : GK · DC (n°3) · N7 (ailier G) · N11 (ailier D) · N9 (attaquant)
-// Un joueur multi-poste peut couvrir n'importe lequel de ses postes
+// POSTES : GK · DC(n°3) · N7(ailier G) · N11(ailier D) · N9(attaquant)
+// Règle souple : si un poste est vide, un joueur adjacent peut le couvrir
 // ═══════════════════════════════════════════════════════
 const PLAYERS=[
-  {name:"Jorvie", pos:["GK"],               fixed:true},
+  {name:"Jorvie", pos:["GK"],                    fixed:true},
   {name:"Tessio", pos:["DC"]},
-  {name:"Raf",    pos:["DC","N7","N11","N9"]},  // très polyvalent
-  {name:"Ricardo",pos:["DC"]},
+  {name:"Raf",    pos:["DC","N7","N11","N9"]},
+  {name:"Ricardo",pos:["DC","N7","N11"]},
   {name:"Aidan",  pos:["DC"]},
   {name:"Sandro", pos:["N7","N11"]},
   {name:"Dario",  pos:["N7","N11"]},
   {name:"Thymao", pos:["N7","N11"]},
   {name:"Noam",   pos:["N7","N11"]},
-  {name:"Mathias",pos:["N7","N11","N9"]},   // peut jouer N9
+  {name:"Mathias",pos:["N7","N11","N9"]},
   {name:"Isaac",  pos:["N9"]},
 ];
 
@@ -90,169 +89,176 @@ function fmt(ds){if(!ds)return"";const[y,m,d]=ds.split("-");return`${d}/${m}/${y
 function daysB(d1,d2){return Math.round((new Date(d2)-new Date(d1))/(864e5));}
 function loadLS(k,d){try{return JSON.parse(localStorage.getItem(k))||d;}catch{return d;}}
 function saveLS(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
-function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
 const S={
   tab:"match",date:"",present:new Set(ALL),
-  hist:loadLS("accf4_h",{}),matches:loadLS("accf4_m",[]),
+  hist:loadLS("accf5_h",{}),matches:loadLS("accf5_m",[]),
   plan:null,alerts:[],saved:false
 };
 
 // ═══════════════════════════════════════════════════════
-// ALGORITHME PRINCIPAL
+// CŒUR DE L'ALGORITHME
 //
-// OBJECTIF : construire 4 rotations complètes (GK·DC·N7·N11·N9)
-// où chaque équipe est ENTIÈREMENT différente de la précédente.
-// Chaque joueur de champ joue exactement 2 rotations = 25 min.
-// Jorvie joue les 4 rotations = 50 min.
+// PRINCIPE :
+// - Match 50min = 4 rotations × 12min30
+// - Jorvie : 50min fixe (toutes les rotations)
+// - Joueurs de champ : objectif 25min chacun (2 rotations sur 4)
+// - En cas de pénurie de joueurs à un poste → un joueur joue plus (max 37.5min)
 //
-// APPROCHE : 
-// On a N joueurs de champ (max 8). On doit remplir 4 rotations × 4 postes = 16 slots.
-// Chaque joueur joue 2 slots → il faut exactement 8 joueurs pour couvrir sans chevauchement.
-// Avec 7 joueurs → un joueur joue 3 rotations (37.5 min, toléré).
-// Avec <7 → certains jouent 3 ou 4 rotations.
+// MÉTHODE "2 ÉQUIPES" :
+// On forme 2 équipes (A et B) de 4 joueurs chacune.
+// Équipe A joue rot 1 + rot 2 (0→25min)
+// Équipe B joue rot 3 + rot 4 (25→50min)
+// → chaque joueur joue exactement 25min
 //
-// MÉTHODE :
-// 1. Construire 2 équipes A et B (chacune joue 2 rotations consécutives)
-//    Équipe A : rotations 1 et 2 (0→25 min)
-//    Équipe B : rotations 3 et 4 (25→50 min)
-//    → garantit que A et B sont totalement différentes
-//    → chaque joueur dans A joue 25 min, idem B
-// 2. Chaque équipe doit avoir : 1 DC + 1 N7 + 1 N11 + 1 N9
-// 3. Affecter les joueurs aux équipes en respectant leurs postes
+// ASSIGNATION PAR POSTE dans chaque équipe via backtracking.
+// Si impossible de former 2 équipes séparées → on autorise 1 joueur commun
+// (il jouera 37.5min ou 50min selon le besoin).
 // ═══════════════════════════════════════════════════════
+
+// Assigner 4 postes (DC,N7,N11,N9) à 4 joueurs via backtracking
+// Retourne {DC:name,...} ou null
+function assignPos(team, posToFill){
+  const used=new Set();
+  const res={};
+  function bt(i){
+    if(i===posToFill.length) return true;
+    const pos=posToFill[i];
+    for(const name of team){
+      if(!used.has(name)&&can(name,pos)){
+        used.add(name); res[pos]=name;
+        if(bt(i+1)) return true;
+        used.delete(name); delete res[pos];
+      }
+    }
+    return false;
+  }
+  return bt(0)?{...res}:null;
+}
+
 function buildPlan(field){
-  // field = joueurs de champ présents (sans Jorvie), max 8 sélectionnés
+  const FIELD_SLOTS=["DC","N7","N11","N9"];
 
-  // ── Étape 1 : vérifier qu'on peut couvrir tous les postes ──
-  const fieldSet=new Set(field);
-  for(const pos of["DC","N7","N11","N9"]){
-    const ok=field.some(n=>can(n,pos));
-    if(!ok) return {error:`Aucun joueur disponible pour le poste ${POS[pos].label} (${POS[pos].num}) avec les présents.`};
+  // Vérif minimale : chaque poste doit avoir AU MOINS 1 joueur capable
+  for(const pos of FIELD_SLOTS){
+    if(!field.some(n=>can(n,pos)))
+      return {error:`Aucun joueur pour le poste ${POS[pos].label} (${POS[pos].num}).`};
   }
 
-  // ── Étape 2 : diviser en 2 groupes de 4 (équipe A et B) ──
-  // On essaie de former 2 groupes équilibrés par poste
-  // Chaque groupe doit pouvoir aligner DC + N7 + N11 + N9
-  
-  let teamA=[], teamB=[];
-  let bestSplit=null;
-
-  // Tenter de trouver une division A/B valide
-  // Pour 8 joueurs : 4 et 4. Pour 7 : 4 et 3 (le groupe de 3 empruntera 1 joueur)
-  // On essaie plusieurs combinaisons (force brute limitée sur 8 joueurs max)
-  
-  function isValidTeam(team){
-    return ["DC","N7","N11","N9"].every(pos=>team.some(n=>can(n,pos)));
-  }
-
-  function assignPosToTeam(team){
-    // Assigner exactement 1 joueur par poste dans une équipe de 4
-    // Retourne {DC:name, N7:name, N11:name, N9:name} ou null si impossible
-    const posToFill=["DC","N7","N11","N9"];
-    const used=new Set();
-    const result={};
-    
-    // Essayer par backtracking simple
-    function bt(idx){
-      if(idx===posToFill.length) return true;
-      const pos=posToFill[idx];
-      for(const name of team){
-        if(!used.has(name)&&can(name,pos)){
-          used.add(name);
-          result[pos]=name;
-          if(bt(idx+1)) return true;
-          used.delete(name);
-          delete result[pos];
-        }
-      }
-      return false;
-    }
-    return bt(0)?result:null;
-  }
-
-  // Générer les combinaisons de taille 4 parmi field
   const n=field.length;
-  const targetA=Math.min(4,Math.ceil(n/2));
-  
-  // Combinaisons de targetA éléments parmi field
-  function* combos(arr,k){
-    if(k===0){yield[];return;}
-    for(let i=0;i<=arr.length-k;i++){
-      for(const rest of combos(arr.slice(i+1),k-1)){
-        yield[arr[i],...rest];
+
+  // ── CAS IDÉAL : 8 joueurs → 2 équipes de 4 sans partage ──
+  if(n>=8){
+    // Essayer toutes les combinaisons de 4 parmi les 8 premiers
+    const pool=field.slice(0,8);
+    for(let mask=0;mask<(1<<8);mask++){
+      if(bin(mask)!==4) continue;
+      const tA=pool.filter((_,i)=>mask&(1<<i));
+      const tB=pool.filter((_,i)=>!(mask&(1<<i)));
+      const aA=assignPos(tA,FIELD_SLOTS);
+      const aB=assignPos(tB,FIELD_SLOTS);
+      if(aA&&aB) return makeResult(field,tA,tB,aA,aB,null);
+    }
+  }
+
+  // ── CAS 7 joueurs → essayer toutes les combos de 4 parmi 7 ──
+  if(n>=7){
+    const pool=field.slice(0,7);
+    for(let mask=0;mask<(1<<7);mask++){
+      if(bin(mask)!==4) continue;
+      const tA=pool.filter((_,i)=>mask&(1<<i));
+      const tB=pool.filter((_,i)=>!(mask&(1<<i))); // 3 joueurs
+      const aA=assignPos(tA,FIELD_SLOTS);
+      if(!aA) continue;
+      // Pour tB (3 joueurs) : trouver le meilleur 4ème depuis tA
+      for(const extra of tA){
+        const tBext=[...tB,extra];
+        const aB=assignPos(tBext,FIELD_SLOTS);
+        if(aB) return makeResult(field,tA,tBext,aA,aB,extra);
       }
     }
   }
 
-  for(const cA of combos(field,targetA)){
-    if(!isValidTeam(cA)) continue;
-    const cB=field.filter(x=>!cA.includes(x));
-    // cB doit aussi être valide ou on peut compléter avec 1 joueur de cA si cB<4
-    if(cB.length<4){
-      // Besoin d'un joueur en double entre A et B
-      // Ajouter le joueur de cA le plus polyvalent qui peut combler le poste manquant
-      const missingPos=["DC","N7","N11","N9"].find(pos=>!cB.some(n=>can(n,pos)));
-      if(!missingPos){
-        // cB est valide même à 3 joueurs, on va lui prêter 1 joueur de cA
-        const extra=cA.find(n=>!cB.some(m=>m===n));
-        const cBext=[...cB,extra];
-        const assA=assignPosToTeam(cA);
-        const assB=assignPosToTeam(cBext);
-        if(assA&&assB){bestSplit={teamA:cA,teamB:cBext,assA,assB,shared:extra};break;}
-      } else {
-        const helper=cA.find(n=>can(n,missingPos));
-        if(helper){
-          const cBext=[...cB,helper];
-          if(isValidTeam(cBext)){
-            const assA=assignPosToTeam(cA);
-            const assB=assignPosToTeam(cBext);
-            if(assA&&assB){bestSplit={teamA:cA,teamB:cBext,assA,assB,shared:helper};break;}
-          }
-        }
-      }
-    } else {
-      if(!isValidTeam(cB)) continue;
-      const assA=assignPosToTeam(cA);
-      const assB=assignPosToTeam(cB);
-      if(assA&&assB){bestSplit={teamA:cA,teamB:cB,assA,assB,shared:null};break;}
+  // ── CAS 6 joueurs → 2 équipes de 4 avec 2 partagés ──
+  if(n>=6){
+    const pool=field.slice(0,6);
+    for(let mask=0;mask<(1<<6);mask++){
+      if(bin(mask)!==4) continue;
+      const tA=pool.filter((_,i)=>mask&(1<<i));
+      const tB=pool.filter((_,i)=>!(mask&(1<<i))); // 2 joueurs
+      const aA=assignPos(tA,FIELD_SLOTS);
+      if(!aA) continue;
+      // Compléter tB avec 2 joueurs de tA
+      const extras=tA.slice(0,2);
+      const tBext=[...tB,...extras];
+      const aB=assignPos(tBext,FIELD_SLOTS);
+      if(aB) return makeResult(field,tA,tBext,aA,aB,extras[0]);
     }
   }
 
-  if(!bestSplit) return {error:"Impossible de former 2 équipes équilibrées avec les joueurs présents."};
+  // ── CAS 5 joueurs → 1 équipe de 4 + 1 équipe de 4 avec 3 partagés ──
+  if(n>=5){
+    const pool=field.slice(0,5);
+    const aA=assignPos(pool.slice(0,4),FIELD_SLOTS);
+    if(aA){
+      const tBext=[...pool.slice(1,4),pool[4]];
+      const aB=assignPos(tBext,FIELD_SLOTS);
+      if(aB) return makeResult(field,pool.slice(0,4),tBext,aA,aB,pool[1]);
+    }
+    // Essayer d'autres combos
+    for(let mask=0;mask<(1<<5);mask++){
+      if(bin(mask)!==4) continue;
+      const tA=pool.filter((_,i)=>mask&(1<<i));
+      const aA2=assignPos(tA,FIELD_SLOTS);
+      if(!aA2) continue;
+      const leftover=pool.filter((_,i)=>!(mask&(1<<i)));
+      const tBext=[...leftover,...tA.slice(0,3)];
+      const aB2=assignPos(tBext,FIELD_SLOTS);
+      if(aB2) return makeResult(field,tA,tBext,aA2,aB2,tA[0]);
+    }
+  }
 
-  const{teamA:tA,teamB:tB,assA,assB,shared}=bestSplit;
+  // ── CAS 4 joueurs → même équipe joue les 4 rotations ──
+  if(n>=4){
+    const aA=assignPos(field.slice(0,4),FIELD_SLOTS);
+    if(aA) return makeResult(field,field.slice(0,4),field.slice(0,4),aA,aA,"all");
+  }
 
-  // ── Étape 3 : construire les 4 rotations ──
-  // Rotations 1 & 2 : équipe A (avec Jorvie)
-  // Rotations 3 & 4 : équipe B (avec Jorvie)
-  // Chaque équipe joue 2 fois → chaque joueur 25 min
-  // Exception : le joueur "shared" joue dans les 2 équipes → 50 min (noté)
+  return {error:"Impossible de former une composition valide avec les joueurs présents."};
+}
 
-  const rot1={GK:"Jorvie",...assA};
-  const rot2={GK:"Jorvie",...assA};  // même équipe
-  const rot3={GK:"Jorvie",...assB};
-  const rot4={GK:"Jorvie",...assB};  // même équipe
+function bin(n){let c=0;while(n){c+=n&1;n>>=1;}return c;}
+
+function makeResult(field,tA,tB,aA,aB,shared){
+  // Construire les 4 rotations
+  const rot1={GK:"Jorvie",...aA};
+  const rot2={GK:"Jorvie",...aA};
+  const rot3={GK:"Jorvie",...aB};
+  const rot4={GK:"Jorvie",...aB};
   const rots=[rot1,rot2,rot3,rot4];
 
-  // Calcul minutes
-  const playCount={};
-  field.forEach(n=>playCount[n]=0);
-  // Chaque joueur dans assA joue rot1+rot2 = 2 rotations = 25 min
-  Object.values(assA).forEach(n=>playCount[n]=(playCount[n]||0)+2);
-  // Chaque joueur dans assB joue rot3+rot4 = 2 rotations = 25 min
-  Object.values(assB).forEach(n=>playCount[n]=(playCount[n]||0)+2);
+  // Compter rotations par joueur
+  const cnt={};
+  field.forEach(n=>cnt[n]=0);
+  Object.values(aA).forEach(n=>cnt[n]=(cnt[n]||0)+2);
+  Object.values(aB).forEach(n=>cnt[n]=(cnt[n]||0)+2);
 
   const minutes={"Jorvie":50};
-  field.forEach(n=>minutes[n]=Math.round((playCount[n]||0)*12.5));
+  field.forEach(n=>minutes[n]=Math.round((cnt[n]||0)*12.5));
 
-  // Joueurs pas du tout utilisés
-  const bench=field.filter(n=>!playCount[n]);
+  const bench=field.filter(n=>!cnt[n]);
 
-  // Info sur joueur partagé entre les 2 équipes
-  const sharedInfo=shared?`⚠️ ${shared} joue dans les 2 équipes (env. 50 min) car il était nécessaire pour couvrir un poste.`:null;
+  // Info joueur(s) partagé(s)
+  let sharedInfo=null;
+  if(shared==="all"){
+    sharedInfo="⚠️ Effectif réduit — la même équipe joue les 50 min.";
+  } else if(shared){
+    const sharedList=Array.isArray(shared)?shared:[shared];
+    const names=sharedList.filter(n=>cnt[n]>2).map(n=>`${n} (${minutes[n]}min)`);
+    if(names.length) sharedInfo=`⚠️ Joueur(s) qui joue(nt) plus longtemps : ${names.join(", ")} — effectif insuffisant pour couvrir tous les postes.`;
+  }
 
-  return {rots,minutes,playCount,bench,tA,tB,assA,assB,shared,sharedInfo};
+  return {rots,minutes,cnt,bench,tA,tB,aA,aB,shared,sharedInfo};
 }
 
 // ═══════════════════════════════════════════════════════
@@ -286,7 +292,7 @@ function generate(){
   if(!S.date){alert("Choisis une date de match !");return;}
   const field=[...S.present].filter(n=>n!=="Jorvie");
   if(field.length<4){alert("Il faut au moins 4 joueurs de champ !");return;}
-  const sel=field.slice(0,8);  // max 8 joueurs de champ
+  const sel=field.slice(0,8);
   const extra=field.slice(8);
   const res=buildPlan(sel);
   if(res.error){alert(res.error);return;}
@@ -311,14 +317,14 @@ function saveMatch(){
   };
   S.matches=[rec,...S.matches];
   S.hist=h;S.saved=true;
-  saveLS("accf4_h",h);saveLS("accf4_m",S.matches);
+  saveLS("accf5_h",h);saveLS("accf5_m",S.matches);
   renderMatch();
 }
 
 function clearAll(){
   if(!confirm("Effacer tout l'historique ?"))return;
   S.hist={};S.matches=[];
-  saveLS("accf4_h",{});saveLS("accf4_m",[]);
+  saveLS("accf5_h",{});saveLS("accf5_m",[]);
   renderHistory();
 }
 
@@ -344,7 +350,6 @@ function renderMatch(){
   const absent=ALL.filter(n=>!S.present.has(n));
   let h="";
 
-  // Date
   h+=`<div class="card">
     <label class="lbl">📅 Date du match</label>
     <input type="date" value="${S.date}"
@@ -352,7 +357,6 @@ function renderMatch(){
       onchange="S.date=this.value;S.plan=null;S.saved=false;computeAlerts();renderMatch()"/>
   </div>`;
 
-  // Présences
   h+=`<div class="card"><label class="lbl">✅ Présents (${[...S.present].length}/11)</label><div>`;
   ALL.forEach(name=>{
     const p=gP(name);const pi=POS[p.pos[0]];
@@ -373,31 +377,35 @@ function renderMatch(){
   h+=`<button class="btn-main" onclick="generate()">⚡ Générer les 4 rotations</button>`;
 
   if(S.plan){
-    const{rots,minutes,sel,extra,bench,tA,tB,assA,assB,shared,sharedInfo}=S.plan;
+    const{rots,minutes,sel,extra,bench,aA,aB,sharedInfo}=S.plan;
 
-    // Résumé équipes
+    // Résumé équipes A / B
     h+=`<div class="card">
-      <label class="lbl">👥 Équipe A (rot. 1-2 · 0→25 min) vs Équipe B (rot. 3-4 · 25→50 min)</label>
+      <label class="lbl">👥 Composition des 2 équipes</label>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">`;
-    [{label:"🔵 Équipe A",ass:assA,col:"#2196f3"},{label:"🟣 Équipe B",ass:assB,col:"#9c27b0"}].forEach(({label,ass,col})=>{
+    [{label:"🔵 Équipe A",ass:aA,col:"#2196f3",t:"0→25 min"},{label:"🟣 Équipe B",ass:aB,col:"#9c27b0",t:"25→50 min"}].forEach(({label,ass,col,t})=>{
       h+=`<div style="background:#0d1226;border-radius:10px;padding:10px;border:1px solid ${col}44;">
-        <div style="font-size:11px;font-weight:700;color:${col};margin-bottom:8px">${label}</div>`;
-      SLOTS.filter(p=>p!=="GK").forEach(pos=>{
-        const name=ass[pos];
-        if(!name)return;
+        <div style="font-size:11px;font-weight:700;color:${col};margin-bottom:6px">${label}</div>
+        <div style="font-size:10px;color:${col}88;margin-bottom:8px">⏱ ${t}</div>
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">
+          <span>🧤</span><span style="font-size:11px;font-weight:700">Jorvie</span>
+          <span style="font-size:9px;color:#f39c12;margin-left:auto">GK</span>
+        </div>`;
+      ["DC","N7","N11","N9"].forEach(pos=>{
+        if(!ass[pos])return;
         const pi=POS[pos];
-        const isShared=name===shared;
-        h+=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:4px;">
+        const extra25=minutes[ass[pos]]>25;
+        h+=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">
           <span>${pi.emoji}</span>
-          <span style="font-size:11px;font-weight:700">${name}</span>
+          <span style="font-size:11px;font-weight:700">${ass[pos]}</span>
           <span style="font-size:9px;color:${pi.color};margin-left:auto">${pi.num}</span>
-          ${isShared?`<span style="font-size:9px;color:#f39c12">★</span>`:""}
+          ${extra25?`<span style="font-size:9px;color:#f39c12">★</span>`:""}
         </div>`;
       });
       h+=`</div>`;
     });
     h+=`</div>`;
-    if(sharedInfo) h+=`<div style="margin-top:8px;font-size:11px;color:#f39c12;background:#2a1a00;padding:7px 10px;border-radius:7px">★ ${sharedInfo}</div>`;
+    if(sharedInfo) h+=`<div style="margin-top:8px;font-size:11px;color:#f39c12;background:#2a1a00;padding:7px 10px;border-radius:7px">${sharedInfo}</div>`;
     h+=`</div>`;
 
     // Temps de jeu
@@ -405,37 +413,34 @@ function renderMatch(){
       <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;">`;
     ["Jorvie",...sel].forEach(name=>{
       const mins=minutes[name]||0;
-      const c=mins>=50?"#f39c12":mins>=25?"#2ecc71":mins>0?"#7eb6ff":"#e74c3c";
+      const c=mins>=50?"#f39c12":mins>=25?"#2ecc71":mins>0?"#7eb6ff":"#aaa";
       h+=`<span style="background:#0d1226;padding:4px 9px;border-radius:14px;font-size:11px;border:1px solid ${c}55">
         <strong style="color:${c}">${mins}min</strong> <span style="color:#9fa8da">${name}</span>
       </span>`;
     });
     h+=`</div>`;
     if(bench.length) h+=`<div style="font-size:11px;color:#7986cb;margin-top:2px">🪑 Banc : ${bench.join(", ")}</div>`;
-    if(extra.length) h+=`<div style="font-size:11px;color:#555;margin-top:2px">Hors sélection (9+) : ${extra.join(", ")}</div>`;
+    if(extra.length) h+=`<div style="font-size:11px;color:#555;margin-top:2px">Hors sélection : ${extra.join(", ")}</div>`;
     h+=`</div>`;
 
-    // 4 Rotations détail
-    h+=`<div class="card"><label class="lbl">🔄 4 Rotations — Équipe complète change toutes les 12min30</label>`;
+    // 4 Rotations
+    h+=`<div class="card"><label class="lbl">🔄 4 Rotations — équipe change toutes les 12min30</label>`;
     rots.forEach((rot,i)=>{
       const rc=RC[i];
-      const teamLabel=i<2?"🔵 Équipe A":"🟣 Équipe B";
+      const tl=i<2?"🔵 Équipe A":"🟣 Équipe B";
       h+=`<div style="background:${rc.bg};border:2px solid ${rc.col}44;border-radius:10px;padding:12px;margin-bottom:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <span style="font-size:12px;font-weight:700;color:${rc.col}">Rotation ${i+1} · ${teamLabel}</span>
+          <span style="font-size:12px;font-weight:700;color:${rc.col}">Rotation ${i+1} · ${tl}</span>
           <span style="font-size:10px;background:${rc.col}22;color:${rc.col};padding:3px 8px;border-radius:8px;font-weight:700">${rc.t}</span>
         </div>
         <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center;">`;
       SLOTS.forEach(pos=>{
-        const name=rot[pos];
-        const pi=POS[pos];
+        const name=rot[pos];const pi=POS[pos];
         if(!name){
-          h+=`<div style="background:#2d1010;border:1px dashed #e74c3c44;border-radius:8px;padding:8px 6px;text-align:center;min-width:55px;flex:1">
-            <div style="font-size:11px;color:#e74c3c">❌</div>
-            <div style="font-size:9px;color:#e74c3c">${pi.num}</div>
-          </div>`;
+          h+=`<div style="background:#2d1010;border:1px dashed #e74c3c44;border-radius:8px;padding:8px 5px;text-align:center;min-width:54px;flex:1">
+            <div style="font-size:11px;color:#e74c3c">❌</div><div style="font-size:9px;color:#e74c3c">${pi.num}</div></div>`;
         } else {
-          h+=`<div style="background:${pi.bg};border:2px solid ${pi.color}66;border-radius:8px;padding:8px 5px;text-align:center;min-width:55px;flex:1">
+          h+=`<div style="background:${pi.bg};border:2px solid ${pi.color}66;border-radius:8px;padding:8px 5px;text-align:center;min-width:54px;flex:1">
             <div style="font-size:15px">${pi.emoji}</div>
             <div style="font-size:11px;font-weight:700;color:${pi.color};margin-top:2px">${name}</div>
             <div style="font-size:9px;color:${pi.color}88">${pi.num}</div>
@@ -462,13 +467,10 @@ function renderHistory(){
     <h2 style="font-size:15px;color:#9fa8da">📋 ${S.matches.length} match${S.matches.length>1?"s":""}</h2>
     ${S.matches.length?`<button class="btn-danger" onclick="clearAll()">🗑️ Tout effacer</button>`:""}
   </div>`;
-
   if(!S.matches.length){
     h+=`<div style="text-align:center;color:#555;padding:40px"><div style="font-size:36px;margin-bottom:8px">📭</div>Aucun match enregistré</div>`;
     document.getElementById("tab-history").innerHTML=h;return;
   }
-
-  // Stats joueurs
   h+=`<div class="card"><label class="lbl">👤 Stats par joueur</label>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(138px,1fr));gap:7px;">`;
   ALL.forEach(name=>{
@@ -482,7 +484,6 @@ function renderHistory(){
     </div>`;
   });
   h+=`</div></div>`;
-
   S.matches.forEach(m=>{
     h+=`<div class="card">
       <div style="font-weight:700;color:#7eb6ff;font-size:13px;margin-bottom:10px">📅 ${fmt(m.date)}</div>`;
@@ -492,8 +493,7 @@ function renderHistory(){
       const pi=POS[gP(c.name).pos[0]];
       const mc=c.mins>=50?"#f39c12":c.mins>=25?"#2ecc71":"#7eb6ff";
       h+=`<span style="background:#1a2a4a;padding:4px 8px;border-radius:12px;font-size:11px;border:1px solid ${pi.color}33">
-        ${pi.emoji} <strong>${c.name}</strong> <span style="color:${mc}">${c.mins}min</span>
-      </span>`;
+        ${pi.emoji} <strong>${c.name}</strong> <span style="color:${mc}">${c.mins}min</span></span>`;
     });
     h+=`</div>`;
     if(m.absent&&m.absent.length){
