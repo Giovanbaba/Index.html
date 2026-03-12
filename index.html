@@ -36,7 +36,7 @@ input[type=date]{color-scheme:dark;font-family:'Trebuchet MS',sans-serif;}
 <div id="header">
   <div class="sub">⚽ ACCF Football HOUDENG · U9B · 5v5</div>
   <h1>Gestionnaire Rotations</h1>
-  <div class="desc">Formation : GK · n°3 · n°7 · n°11 · n°9 — 4 rotations × 12min30 — min. 25min/joueur by Fragapane G.</div>
+  <div class="desc">Jorvie 50min fixe · 4 postes × 50min ÷ N joueurs de champ = temps égal pour tous</div>
 </div>
 <div id="tabs">
   <button class="tab-btn active" onclick="showTab('match')">🗓️ Match</button>
@@ -49,526 +49,546 @@ input[type=date]{color-scheme:dark;font-family:'Trebuchet MS',sans-serif;}
   <div id="tab-roster" style="display:none"></div>
 </div>
 <script>
-// ═══════════════════════════════════════════════════════
-// POSTES : GK · DC(n°3) · N7(ailier G) · N11(ailier D) · N9(attaquant)
-// Règle souple : si un poste est vide, un joueur adjacent peut le couvrir
-// ═══════════════════════════════════════════════════════
-const PLAYERS=[
-  {name:"Jorvie", pos:["GK"],                    fixed:true},
-  {name:"Tessio", pos:["DC"]},
-  {name:"Raf",    pos:["DC","N7","N11","N9"]},
-  {name:"Ricardo",pos:["DC"]},
-  {name:"Aidan",  pos:["DC"]},
-  {name:"Sandro", pos:["N7","N11"]},
-  {name:"Dario",  pos:["N7","N11"]},
-  {name:"Thymao", pos:["N7","N11"]},
-  {name:"Noam",   pos:["N7","N11"]},
-  {name:"Mathias",pos:["N7","N11","N9"]},
-  {name:"Isaac",  pos:["N9"]},
+// ════════════════════════════════════════════════════════
+// JOUEURS
+// ════════════════════════════════════════════════════════
+const PLAYERS = [
+  { name:"Jorvie",  pos:["GK"],               fixed:true },
+  { name:"Tessio",  pos:["DC"] },
+  { name:"Raf",     pos:["DC","N7","N11","N9"] },
+  { name:"Ricardo", pos:["DC"] },
+  { name:"Aidan",   pos:["DC"] },
+  { name:"Sandro",  pos:["N7","N11"] },
+  { name:"Dario",   pos:["N7","N11"] },
+  { name:"Thymao",  pos:["N7","N11"] },
+  { name:"Noam",    pos:["N7","N11"] },
+  { name:"Mathias", pos:["N7","N11","N9"] },
+  { name:"Isaac",   pos:["N9"] },
+];
+const ALL   = PLAYERS.map(p => p.name);
+const SLOTS = ["GK","DC","N7","N11","N9"];
+const POS   = {
+  GK:  { label:"Gardien",   num:"GK",   emoji:"🧤", color:"#f39c12", bg:"#2a1a00" },
+  DC:  { label:"Défenseur", num:"n°3",  emoji:"🛡️", color:"#3498db", bg:"#001828" },
+  N7:  { label:"Ailier G",  num:"n°7",  emoji:"⚡", color:"#2ecc71", bg:"#002810" },
+  N11: { label:"Ailier D",  num:"n°11", emoji:"⚡", color:"#1abc9c", bg:"#002820" },
+  N9:  { label:"Attaquant", num:"n°9",  emoji:"⚽", color:"#e74c3c", bg:"#280000" },
+};
+const ROT_COLORS = [
+  "#2196f3","#9c27b0","#4caf50","#f44336",
+  "#ff9800","#00bcd4","#e91e63","#8bc34a",
+  "#ff5722","#607d8b","#795548","#009688"
 ];
 
-const ALL=PLAYERS.map(p=>p.name);
-const SLOTS=["GK","DC","N7","N11","N9"];
-const POS={
-  GK: {label:"Gardien",  num:"GK",   emoji:"🧤",color:"#f39c12",bg:"#2a1a00"},
-  DC: {label:"Défenseur",num:"n°3",  emoji:"🛡️",color:"#3498db",bg:"#001828"},
-  N7: {label:"Ailier G", num:"n°7",  emoji:"⚡",color:"#2ecc71",bg:"#002810"},
-  N11:{label:"Ailier D", num:"n°11", emoji:"⚡",color:"#1abc9c",bg:"#002820"},
-  N9: {label:"Attaquant",num:"n°9",  emoji:"⚽",color:"#e74c3c",bg:"#280000"},
-};
-const RC=[
-  {col:"#2196f3",bg:"#071828",t:"0:00 → 12:30"},
-  {col:"#9c27b0",bg:"#150720",t:"12:30 → 25:00"},
-  {col:"#4caf50",bg:"#071507",t:"25:00 → 37:30"},
-  {col:"#f44336",bg:"#180707",t:"37:30 → 50:00"},
-];
+function gP(n)     { return PLAYERS.find(p => p.name === n); }
+function can(n, p) { return gP(n).pos.includes(p); }
+function fmt(ds)   { if(!ds)return""; const[y,m,d]=ds.split("-"); return`${d}/${m}/${y}`; }
+function daysB(d1,d2){ return Math.round((new Date(d2)-new Date(d1))/864e5); }
+function loadLS(k,d){ try{ return JSON.parse(localStorage.getItem(k))||d; }catch{ return d; } }
+function saveLS(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
 
-function gP(n){return PLAYERS.find(p=>p.name===n);}
-function can(n,pos){return gP(n).pos.includes(pos);}
-function fmt(ds){if(!ds)return"";const[y,m,d]=ds.split("-");return`${d}/${m}/${y}`;}
-function daysB(d1,d2){return Math.round((new Date(d2)-new Date(d1))/(864e5));}
-function loadLS(k,d){try{return JSON.parse(localStorage.getItem(k))||d;}catch{return d;}}
-function saveLS(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
-
-const S={
-  tab:"match",date:"",present:new Set(ALL),
-  hist:loadLS("accf5_h",{}),matches:loadLS("accf5_m",[]),
-  plan:null,alerts:[],saved:false
+const S = {
+  tab:"match", date:"", present:new Set(ALL),
+  hist:loadLS("accf7_h",{}), matches:loadLS("accf7_m",[]),
+  plan:null, alerts:[], saved:false
 };
 
-// ═══════════════════════════════════════════════════════
-// CŒUR DE L'ALGORITHME
+// ════════════════════════════════════════════════════════
+// ALGORITHME — TEMPS ÉGAL POUR TOUS LES JOUEURS DE CHAMP
 //
-// PRINCIPE :
-// - Match 50min = 4 rotations × 12min30
-// - Jorvie : 50min fixe (toutes les rotations)
-// - Joueurs de champ : objectif 25min chacun (2 rotations sur 4)
-// - En cas de pénurie de joueurs à un poste → un joueur joue plus (max 37.5min)
+// RÈGLE FONDAMENTALE :
+//   Jorvie = gardien fixe, joue 50 min sans interruption.
+//   Les joueurs de CHAMP se partagent les 4 postes sur 50 min.
 //
-// MÉTHODE "2 ÉQUIPES" :
-// On forme 2 équipes (A et B) de 4 joueurs chacune.
-// Équipe A joue rot 1 + rot 2 (0→25min)
-// Équipe B joue rot 3 + rot 4 (25→50min)
-// → chaque joueur joue exactement 25min
+//   Temps disponible = 4 postes × 50 min = 200 min-poste
+//   N = nombre de joueurs de champ présents
+//   Temps par joueur = 200 / N minutes (exactement égal)
 //
-// ASSIGNATION PAR POSTE dans chaque équipe via backtracking.
-// Si impossible de former 2 équipes séparées → on autorise 1 joueur commun
-// (il jouera 37.5min ou 50min selon le besoin).
-// ═══════════════════════════════════════════════════════
+//   Exemples :
+//     4 joueurs de champ → 200/4 = 50 min chacun (ils jouent tout le match)
+//     5 joueurs de champ → 200/5 = 40 min chacun
+//     6 joueurs de champ → 200/6 ≈ 33.33 min (4 joueurs 33min, 2 joueurs 34min)
+//     7 joueurs de champ → 200/7 ≈ 28.57 min (4 joueurs 29min, 3 joueurs 28min)
+//     8 joueurs de champ → 200/8 = 25 min chacun (exactement)
+//
+// MÉTHODE DE DÉCOUPAGE EN TRANCHES :
+//   On crée N tranches de durée égale = 50/N minutes.
+//   Dans chaque tranche i, 4 joueurs jouent (les autres se reposent).
+//   On fait tourner de façon cyclique : tranche i → joueurs [i, i+1, i+2, i+3] mod N
+//   Résultat : chaque joueur apparaît dans exactement 4 tranches sur N.
+//   Temps de jeu = 4 × (50/N) = 200/N ✓ ÉGAL POUR TOUS
+//
+//   Pour les cas non-entiers (6 ou 7 joueurs) :
+//   On distribue les secondes résiduelles équitablement :
+//   certains jouent floor(200/N) min, d'autres ceil(200/N) min.
+//   La différence est de 1 minute maximum.
+// ════════════════════════════════════════════════════════
 
-// Assigner 4 postes (DC,N7,N11,N9) à 4 joueurs via backtracking
-// Retourne {DC:name,...} ou null
-function assignPos(team, posToFill){
-  const used=new Set();
-  const res={};
-  function bt(i){
-    if(i===posToFill.length) return true;
-    const pos=posToFill[i];
-    for(const name of team){
-      if(!used.has(name)&&can(name,pos)){
-        used.add(name); res[pos]=name;
-        if(bt(i+1)) return true;
-        used.delete(name); delete res[pos];
+// Backtracking : assigner DC, N7, N11, N9 à une équipe de 4 joueurs
+function assignPos(team) {
+  const FPOS = ["DC","N7","N11","N9"];
+  const used = new Set(), res = {};
+  function bt(i) {
+    if (i === FPOS.length) return true;
+    for (const name of team) {
+      if (!used.has(name) && can(name, FPOS[i])) {
+        used.add(name); res[FPOS[i]] = name;
+        if (bt(i+1)) return true;
+        used.delete(name); delete res[FPOS[i]];
       }
     }
     return false;
   }
-  return bt(0)?{...res}:null;
+  return bt(0) ? {...res} : null;
 }
 
-function buildPlan(field){
-  const FIELD_SLOTS=["DC","N7","N11","N9"];
-
-  // Vérif minimale : chaque poste doit avoir AU MOINS 1 joueur capable
-  for(const pos of FIELD_SLOTS){
-    if(!field.some(n=>can(n,pos)))
-      return {error:`Aucun joueur pour le poste ${POS[pos].label} (${POS[pos].num}).`};
+// Trouver une équipe de 4 valide parmi un pool, en évitant les joueurs trop chargés si possible
+function findTeam(pool, playCount, maxAllowed) {
+  // Trier : priorité aux joueurs qui ont le moins joué
+  const sorted = [...pool].sort((a,b) => (playCount[a]||0) - (playCount[b]||0));
+  // Essayer toutes les combos de 4 parmi les plus "frais"
+  function* combos(arr, k) {
+    if (k===0) { yield []; return; }
+    for (let i=0; i<=arr.length-k; i++)
+      for (const rest of combos(arr.slice(i+1), k-1)) yield [arr[i], ...rest];
   }
-
-  const n=field.length;
-
-  // ── CAS IDÉAL : 8 joueurs → 2 équipes de 4 sans partage ──
-  if(n>=8){
-    // Essayer toutes les combinaisons de 4 parmi les 8 premiers
-    const pool=field.slice(0,8);
-    for(let mask=0;mask<(1<<8);mask++){
-      if(bin(mask)!==4) continue;
-      const tA=pool.filter((_,i)=>mask&(1<<i));
-      const tB=pool.filter((_,i)=>!(mask&(1<<i)));
-      const aA=assignPos(tA,FIELD_SLOTS);
-      const aB=assignPos(tB,FIELD_SLOTS);
-      if(aA&&aB) return makeResult(field,tA,tB,aA,aB,null);
-    }
+  for (const combo of combos(sorted, 4)) {
+    // Vérifier qu'aucun joueur ne dépasse son quota
+    if (maxAllowed && combo.some(n => (playCount[n]||0) >= maxAllowed)) continue;
+    const ass = assignPos(combo);
+    if (ass) return { team: combo, ass };
   }
-
-  // ── CAS 7 joueurs → essayer toutes les combos de 4 parmi 7 ──
-  if(n>=7){
-    const pool=field.slice(0,7);
-    for(let mask=0;mask<(1<<7);mask++){
-      if(bin(mask)!==4) continue;
-      const tA=pool.filter((_,i)=>mask&(1<<i));
-      const tB=pool.filter((_,i)=>!(mask&(1<<i))); // 3 joueurs
-      const aA=assignPos(tA,FIELD_SLOTS);
-      if(!aA) continue;
-      // Pour tB (3 joueurs) : trouver le meilleur 4ème depuis tA
-      for(const extra of tA){
-        const tBext=[...tB,extra];
-        const aB=assignPos(tBext,FIELD_SLOTS);
-        if(aB) return makeResult(field,tA,tBext,aA,aB,extra);
-      }
-    }
+  // Si aucune combo "propre", essayer sans contrainte de quota
+  for (const combo of combos(sorted, 4)) {
+    const ass = assignPos(combo);
+    if (ass) return { team: combo, ass };
   }
-
-  // ── CAS 6 joueurs → 2 équipes de 4 avec 2 partagés ──
-  if(n>=6){
-    const pool=field.slice(0,6);
-    for(let mask=0;mask<(1<<6);mask++){
-      if(bin(mask)!==4) continue;
-      const tA=pool.filter((_,i)=>mask&(1<<i));
-      const tB=pool.filter((_,i)=>!(mask&(1<<i))); // 2 joueurs
-      const aA=assignPos(tA,FIELD_SLOTS);
-      if(!aA) continue;
-      // Compléter tB avec 2 joueurs de tA
-      const extras=tA.slice(0,2);
-      const tBext=[...tB,...extras];
-      const aB=assignPos(tBext,FIELD_SLOTS);
-      if(aB) return makeResult(field,tA,tBext,aA,aB,extras[0]);
-    }
-  }
-
-  // ── CAS 5 joueurs → 1 équipe de 4 + 1 équipe de 4 avec 3 partagés ──
-  if(n>=5){
-    const pool=field.slice(0,5);
-    const aA=assignPos(pool.slice(0,4),FIELD_SLOTS);
-    if(aA){
-      const tBext=[...pool.slice(1,4),pool[4]];
-      const aB=assignPos(tBext,FIELD_SLOTS);
-      if(aB) return makeResult(field,pool.slice(0,4),tBext,aA,aB,pool[1]);
-    }
-    // Essayer d'autres combos
-    for(let mask=0;mask<(1<<5);mask++){
-      if(bin(mask)!==4) continue;
-      const tA=pool.filter((_,i)=>mask&(1<<i));
-      const aA2=assignPos(tA,FIELD_SLOTS);
-      if(!aA2) continue;
-      const leftover=pool.filter((_,i)=>!(mask&(1<<i)));
-      const tBext=[...leftover,...tA.slice(0,3)];
-      const aB2=assignPos(tBext,FIELD_SLOTS);
-      if(aB2) return makeResult(field,tA,tBext,aA2,aB2,tA[0]);
-    }
-  }
-
-  // ── CAS 4 joueurs → même équipe joue les 4 rotations ──
-  if(n>=4){
-    const aA=assignPos(field.slice(0,4),FIELD_SLOTS);
-    if(aA) return makeResult(field,field.slice(0,4),field.slice(0,4),aA,aA,"all");
-  }
-
-  return {error:"Impossible de former une composition valide avec les joueurs présents."};
+  return null;
 }
 
-function bin(n){let c=0;while(n){c+=n&1;n>>=1;}return c;}
+function buildPlan(field) {
+  // field = joueurs de champ présents (sans Jorvie)
+  const N = field.length;
 
-function makeResult(field,tA,tB,aA,aB,shared){
-  // Construire les 4 rotations
-  const rot1={GK:"Jorvie",...aA};
-  const rot2={GK:"Jorvie",...aA};
-  const rot3={GK:"Jorvie",...aB};
-  const rot4={GK:"Jorvie",...aB};
-  const rots=[rot1,rot2,rot3,rot4];
-
-  // Compter rotations par joueur
-  const cnt={};
-  field.forEach(n=>cnt[n]=0);
-  Object.values(aA).forEach(n=>cnt[n]=(cnt[n]||0)+2);
-  Object.values(aB).forEach(n=>cnt[n]=(cnt[n]||0)+2);
-
-  const minutes={"Jorvie":50};
-  field.forEach(n=>minutes[n]=Math.round((cnt[n]||0)*12.5));
-
-  const bench=field.filter(n=>!cnt[n]);
-
-  // Info joueur(s) partagé(s)
-  let sharedInfo=null;
-  if(shared==="all"){
-    sharedInfo="⚠️ Effectif réduit — la même équipe joue les 50 min.";
-  } else if(shared){
-    const sharedList=Array.isArray(shared)?shared:[shared];
-    const names=sharedList.filter(n=>cnt[n]>2).map(n=>`${n} (${minutes[n]}min)`);
-    if(names.length) sharedInfo=`⚠️ Joueur(s) qui joue(nt) plus longtemps : ${names.join(", ")} — effectif insuffisant pour couvrir tous les postes.`;
+  // Vérif : chaque poste couvert ?
+  for (const pos of ["DC","N7","N11","N9"]) {
+    if (!field.some(n => can(n, pos)))
+      return { error: `Aucun joueur disponible pour le poste ${POS[pos].label} (${POS[pos].num}).` };
   }
 
-  return {rots,minutes,cnt,bench,tA,tB,aA,aB,shared,sharedInfo};
-}
+  // ── Calcul du temps cible ──
+  // 200 min-poste / N joueurs = temps exact par joueur
+  const exactMin  = 200 / N;                    // ex: 7 joueurs → 28.571...
+  const floorMin  = Math.floor(exactMin);        // ex: 28
+  const ceilMin   = Math.ceil(exactMin);         // ex: 29
+  // Combien de joueurs ont le temps "ceil" ?
+  // N * exactMin = 200 → x*ceil + (N-x)*floor = 200
+  // x*(ceil-floor) = 200 - N*floor
+  const nCeil     = Math.round(200 - N * floorMin); // nb joueurs avec +1 min
+  const nFloor    = N - nCeil;                       // nb joueurs avec floor min
 
-// ═══════════════════════════════════════════════════════
-// ALERTS
-// ═══════════════════════════════════════════════════════
-function computeAlerts(){
-  if(!S.date){S.alerts=[];return;}
-  const out=[];
-  [...S.present].filter(n=>n!=="Jorvie").forEach(name=>{
-    const entries=(S.hist[name]||[]).sort((a,b)=>b.date.localeCompare(a.date));
-    if(!entries.length)return;
-    const days=daysB(entries[0].date,S.date);
-    if(days<0)return;
-    const last=fmt(entries[0].date);
-    if(days<=7)  out.push({name,type:"w",msg:`Convoqué le ${last} (${days}j) — ⚠️ fatigue !`});
-    else if(days<=14) out.push({name,type:"i",msg:`Convoqué le ${last} (${days}j) — à surveiller`});
+  // ── Nombre de tranches ──
+  // On veut N tranches de durée 50/N min chacune.
+  // Chaque joueur joue dans exactement 4 tranches → 4*(50/N) = 200/N ✓
+  const nbSlices  = N;
+  const sliceDur  = 50 / N; // durée en minutes de chaque tranche
+
+  // ── Construction des tranches par rotation cyclique ──
+  // Tranche i → joueurs aux indices i, i+1, i+2, i+3 (mod N)
+  const slices = [];
+  const playCount = {};
+  field.forEach(n => playCount[n] = 0);
+
+  for (let i = 0; i < nbSlices; i++) {
+    // Équipe cyclique
+    const cycleTeam = [0,1,2,3].map(k => field[(i+k) % N]);
+    let ass = assignPos(cycleTeam);
+
+    if (!ass) {
+      // L'équipe cyclique ne peut pas couvrir tous les postes
+      // → on cherche une équipe valide de 4 parmi tous les joueurs
+      // en privilégiant ceux qui ont joué le moins
+      const result = findTeam(field, playCount, null);
+      if (!result) return { error: "Impossible de former une équipe valide." };
+      ass = result.ass;
+      result.team.forEach(n => cycleTeam.splice(0, cycleTeam.length, ...result.team));
+    }
+
+    const team = [...cycleTeam];
+    team.forEach(n => playCount[n] = (playCount[n]||0) + 1);
+    slices.push({ dur: sliceDur, team, ass });
+  }
+
+  // ── Calcul des minutes réelles ──
+  // Chaque joueur a joué exactement 4 tranches de sliceDur minutes
+  // = 4 * (50/N) = 200/N ✓
+  // Pour l'affichage, on répartit les secondes résiduelles :
+  // nCeil joueurs → ceilMin, nFloor joueurs → floorMin
+  // On donne le +1 min aux joueurs qui ont le moins joué au total (équité saison)
+  const minutesMap = { "Jorvie": 50 };
+  // Trier par historique (moins de minutes au total → priorité au +1 min)
+  const sorted = [...field].sort((a,b) => {
+    const ta = (S.hist[a]||[]).reduce((s,e) => s+(e.mins||0), 0);
+    const tb = (S.hist[b]||[]).reduce((s,e) => s+(e.mins||0), 0);
+    return ta - tb;
   });
-  S.alerts=out;
-}
-
-// ═══════════════════════════════════════════════════════
-// ACTIONS
-// ═══════════════════════════════════════════════════════
-function toggle(name){
-  if(gP(name).fixed)return;
-  S.present.has(name)?S.present.delete(name):S.present.add(name);
-  S.plan=null;S.saved=false;computeAlerts();renderMatch();
-}
-
-function generate(){
-  if(!S.date){alert("Choisis une date de match !");return;}
-  const field=[...S.present].filter(n=>n!=="Jorvie");
-  if(field.length<4){alert("Il faut au moins 4 joueurs de champ !");return;}
-  const sel=field.slice(0,8);
-  const extra=field.slice(8);
-  const res=buildPlan(sel);
-  if(res.error){alert(res.error);return;}
-  S.plan={...res,sel,extra};
-  S.saved=false;renderMatch();
-}
-
-function saveMatch(){
-  if(!S.plan||!S.date||S.saved)return;
-  const{sel,minutes,rots}=S.plan;
-  const absent=ALL.filter(n=>!S.present.has(n));
-  const h={...S.hist};
-  ["Jorvie",...sel].forEach(name=>{
-    if(!h[name])h[name]=[];
-    if((minutes[name]||0)>0) h[name].unshift({date:S.date,mins:minutes[name]});
+  sorted.forEach((name, idx) => {
+    minutesMap[name] = idx < nCeil ? ceilMin : floorMin;
   });
-  const rec={
-    date:S.date,
-    convoked:["Jorvie",...sel].map(name=>({name,mins:minutes[name]||0})).filter(x=>x.mins>0),
-    absent,
-    rots:rots.map((r,i)=>({num:i+1,...r}))
+
+  return {
+    slices, minutesMap, field,
+    exactMin, floorMin, ceilMin, nCeil, nFloor, sliceDur: Math.round(sliceDur*100)/100
   };
-  S.matches=[rec,...S.matches];
-  S.hist=h;S.saved=true;
-  saveLS("accf5_h",h);saveLS("accf5_m",S.matches);
+}
+
+// ════════════════════════════════════════════════════════
+// ALERTS
+// ════════════════════════════════════════════════════════
+function computeAlerts() {
+  if (!S.date) { S.alerts = []; return; }
+  const out = [];
+  [...S.present].filter(n => n !== "Jorvie").forEach(name => {
+    const entries = (S.hist[name]||[]).sort((a,b) => b.date.localeCompare(a.date));
+    if (!entries.length) return;
+    const days = daysB(entries[0].date, S.date);
+    if (days < 0) return;
+    const last = fmt(entries[0].date);
+    if (days <= 7)       out.push({name, type:"w", msg:`Convoqué le ${last} (${days}j) — ⚠️ fatigue !`});
+    else if (days <= 14) out.push({name, type:"i", msg:`Convoqué le ${last} (${days}j) — à surveiller`});
+  });
+  S.alerts = out;
+}
+
+// ════════════════════════════════════════════════════════
+// ACTIONS
+// ════════════════════════════════════════════════════════
+function toggle(name) {
+  if (gP(name).fixed) return;
+  S.present.has(name) ? S.present.delete(name) : S.present.add(name);
+  S.plan = null; S.saved = false;
+  computeAlerts(); renderMatch();
+}
+
+function generate() {
+  if (!S.date) { alert("Choisis une date de match !"); return; }
+  const field = [...S.present].filter(n => n !== "Jorvie");
+  if (field.length < 4) { alert("Il faut au moins 4 joueurs de champ !"); return; }
+  const res = buildPlan(field);
+  if (res.error) { alert(res.error); return; }
+  S.plan = res;
+  S.saved = false;
   renderMatch();
 }
 
-function clearAll(){
-  if(!confirm("Effacer tout l'historique ?"))return;
-  S.hist={};S.matches=[];
-  saveLS("accf5_h",{});saveLS("accf5_m",[]);
+function saveMatch() {
+  if (!S.plan || !S.date || S.saved) return;
+  const { field, minutesMap, slices } = S.plan;
+  const absent = ALL.filter(n => !S.present.has(n));
+  const h = { ...S.hist };
+  ["Jorvie", ...field].forEach(name => {
+    if (!h[name]) h[name] = [];
+    const m = minutesMap[name]||0;
+    if (m > 0) h[name].unshift({ date: S.date, mins: m });
+  });
+  const rec = {
+    date: S.date,
+    convoked: ["Jorvie",...field].map(name => ({ name, mins: minutesMap[name]||0 })),
+    absent,
+    slices: slices.map((sl,i) => ({ num:i+1, dur:Math.round(sl.dur*100)/100, ...sl.ass }))
+  };
+  S.matches = [rec, ...S.matches];
+  S.hist = h; S.saved = true;
+  saveLS("accf7_h", h); saveLS("accf7_m", S.matches);
+  renderMatch();
+}
+
+function clearAll() {
+  if (!confirm("Effacer tout l'historique ?")) return;
+  S.hist = {}; S.matches = [];
+  saveLS("accf7_h", {}); saveLS("accf7_m", []);
   renderHistory();
 }
 
-// ═══════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
 // TABS
-// ═══════════════════════════════════════════════════════
-function showTab(tab){
-  S.tab=tab;
-  ["match","history","roster"].forEach((t,i)=>{
-    document.querySelectorAll(".tab-btn")[i].classList.toggle("active",t===tab);
-    document.getElementById("tab-"+t).style.display=t===tab?"":"none";
+// ════════════════════════════════════════════════════════
+function showTab(tab) {
+  S.tab = tab;
+  ["match","history","roster"].forEach((t,i) => {
+    document.querySelectorAll(".tab-btn")[i].classList.toggle("active", t===tab);
+    document.getElementById("tab-"+t).style.display = t===tab ? "" : "none";
   });
-  if(tab==="match")   renderMatch();
-  if(tab==="history") renderHistory();
-  if(tab==="roster")  renderRoster();
+  if (tab==="match")   renderMatch();
+  if (tab==="history") renderHistory();
+  if (tab==="roster")  renderRoster();
 }
 
-// ═══════════════════════════════════════════════════════
-// RENDER MATCH
-// ═══════════════════════════════════════════════════════
-function renderMatch(){
-  computeAlerts();
-  const absent=ALL.filter(n=>!S.present.has(n));
-  let h="";
+// Format minutes → "MM:SS"
+function fmtTime(min) {
+  const m = Math.floor(min);
+  const s = Math.round((min - m) * 60);
+  return `${String(m).padStart(2,"0")}:${String(s===60?s-1:s).padStart(2,"0")}`;
+}
 
-  h+=`<div class="card">
+// ════════════════════════════════════════════════════════
+// RENDER MATCH
+// ════════════════════════════════════════════════════════
+function renderMatch() {
+  computeAlerts();
+  const absent = ALL.filter(n => !S.present.has(n));
+  let h = "";
+
+  // Date
+  h += `<div class="card">
     <label class="lbl">📅 Date du match</label>
     <input type="date" value="${S.date}"
       style="background:#1a2340;border:1.5px solid #2a3a6a;border-radius:8px;color:#e8eaf6;padding:9px 12px;font-size:14px;outline:none;width:100%;"
       onchange="S.date=this.value;S.plan=null;S.saved=false;computeAlerts();renderMatch()"/>
   </div>`;
 
-  h+=`<div class="card"><label class="lbl">✅ Présents (${[...S.present].length}/11)</label><div>`;
-  ALL.forEach(name=>{
-    const p=gP(name);const pi=POS[p.pos[0]];
-    const on=S.present.has(name);
+  // Présences
+  h += `<div class="card"><label class="lbl">✅ Présents (${[...S.present].length}/11)</label><div>`;
+  ALL.forEach(name => {
+    const p=gP(name), pi=POS[p.pos[0]], on=S.present.has(name);
     const al=S.alerts.find(a=>a.name===name);
     const bc=al&&on?(al.type==="w"?"#e74c3c":"#f39c12"):(on?pi.color:"#2a2a4a");
-    h+=`<span class="pill ${on?"on":""}" style="border-color:${bc};${p.fixed?"cursor:default":""}"
+    h += `<span class="pill ${on?"on":""}" style="border-color:${bc};${p.fixed?"cursor:default":""}"
       onclick="toggle('${name}')">${pi.emoji} ${name}${p.fixed?" 🔒":""}${al&&on?(al.type==="w"?" ⚠️":" ℹ️"):""}</span>`;
   });
-  h+=`</div>`;
-  if(absent.length) h+=`<div style="margin-top:8px;font-size:11px;color:#e74c3c">❌ Absents : ${absent.join(", ")}</div>`;
-  h+=`</div>`;
+  h += `</div>`;
+  if (absent.length) h += `<div style="margin-top:8px;font-size:11px;color:#e74c3c">❌ Absents : ${absent.join(", ")}</div>`;
+  h += `</div>`;
 
-  S.alerts.filter(a=>S.present.has(a.name)).forEach(a=>{
-    h+=`<div class="alert-${a.type}">${a.type==="w"?"⚠️":"ℹ️"} <strong>${a.name}</strong> : ${a.msg}</div>`;
+  S.alerts.filter(a=>S.present.has(a.name)).forEach(a => {
+    h += `<div class="alert-${a.type}">${a.type==="w"?"⚠️":"ℹ️"} <strong>${a.name}</strong> : ${a.msg}</div>`;
   });
 
-  h+=`<button class="btn-main" onclick="generate()">⚡ Générer les 4 rotations</button>`;
+  h += `<button class="btn-main" onclick="generate()">⚡ Générer les rotations</button>`;
 
-  if(S.plan){
-    const{rots,minutes,sel,extra,bench,aA,aB,sharedInfo}=S.plan;
+  if (S.plan) {
+    const { slices, minutesMap, field, exactMin, floorMin, ceilMin, nCeil, nFloor, sliceDur } = S.plan;
+    const N = field.length;
 
-    // Résumé équipes A / B
-    h+=`<div class="card">
-      <label class="lbl">👥 Composition des 2 équipes</label>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">`;
-    [{label:"🔵 Équipe A",ass:aA,col:"#2196f3",t:"0→25 min"},{label:"🟣 Équipe B",ass:aB,col:"#9c27b0",t:"25→50 min"}].forEach(({label,ass,col,t})=>{
-      h+=`<div style="background:#0d1226;border-radius:10px;padding:10px;border:1px solid ${col}44;">
-        <div style="font-size:11px;font-weight:700;color:${col};margin-bottom:6px">${label}</div>
-        <div style="font-size:10px;color:${col}88;margin-bottom:8px">⏱ ${t}</div>
-        <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">
-          <span>🧤</span><span style="font-size:11px;font-weight:700">Jorvie</span>
-          <span style="font-size:9px;color:#f39c12;margin-left:auto">GK</span>
-        </div>`;
-      ["DC","N7","N11","N9"].forEach(pos=>{
-        if(!ass[pos])return;
-        const pi=POS[pos];
-        const extra25=minutes[ass[pos]]>25;
-        h+=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">
-          <span>${pi.emoji}</span>
-          <span style="font-size:11px;font-weight:700">${ass[pos]}</span>
-          <span style="font-size:9px;color:${pi.color};margin-left:auto">${pi.num}</span>
-          ${extra25?`<span style="font-size:9px;color:#f39c12">★</span>`:""}
-        </div>`;
-      });
-      h+=`</div>`;
-    });
-    h+=`</div>`;
-    if(sharedInfo) h+=`<div style="margin-top:8px;font-size:11px;color:#f39c12;background:#2a1a00;padding:7px 10px;border-radius:7px">${sharedInfo}</div>`;
-    h+=`</div>`;
+    // Bannière temps de jeu
+    const timeStr = Number.isInteger(exactMin)
+      ? `${exactMin} min`
+      : `${floorMin}-${ceilMin} min`;
+    const detail = Number.isInteger(exactMin)
+      ? `Tous jouent exactement ${exactMin} min`
+      : `${nCeil} joueur${nCeil>1?"s":""} → ${ceilMin} min · ${nFloor} joueur${nFloor>1?"s":""} → ${floorMin} min`;
 
-    // Temps de jeu
-    h+=`<div class="card"><label class="lbl">⏱ Temps de jeu</label>
-      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;">`;
-    ["Jorvie",...sel].forEach(name=>{
-      const mins=minutes[name]||0;
-      const c=mins>=50?"#f39c12":mins>=25?"#2ecc71":mins>0?"#7eb6ff":"#aaa";
-      h+=`<span style="background:#0d1226;padding:4px 9px;border-radius:14px;font-size:11px;border:1px solid ${c}55">
-        <strong style="color:${c}">${mins}min</strong> <span style="color:#9fa8da">${name}</span>
+    h += `<div class="card">
+      <label class="lbl">⏱ Temps de jeu · ${N} joueurs de champ</label>
+      <div style="background:#071e07;border:1px solid #2ecc7166;border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;">
+        <div style="font-size:16px;font-weight:700;color:#2ecc71">⚽ ${timeStr} par joueur de champ</div>
+        <div style="font-size:10px;color:#7986cb;margin-top:4px">${detail}</div>
+        <div style="font-size:10px;color:#555;margin-top:2px">Formule : 4 postes × 50 min ÷ ${N} joueurs = ${Math.round(exactMin*100)/100} min</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;">`;
+    // Jorvie en premier
+    h += `<span style="background:#0d1226;padding:5px 10px;border-radius:14px;font-size:11px;border:1px solid #f39c1255">
+      <strong style="color:#f39c12">50min</strong> <span style="color:#9fa8da">🧤 Jorvie</span>
+    </span>`;
+    field.forEach(name => {
+      const mins = minutesMap[name]||0;
+      const isExtra = mins === ceilMin && !Number.isInteger(exactMin);
+      h += `<span style="background:#0d1226;padding:5px 10px;border-radius:14px;font-size:11px;border:1px solid #2ecc7155">
+        <strong style="color:#2ecc71">${mins}min${isExtra?" ★":""}</strong> <span style="color:#9fa8da">${name}</span>
       </span>`;
     });
-    h+=`</div>`;
-    if(bench.length) h+=`<div style="font-size:11px;color:#7986cb;margin-top:2px">🪑 Banc : ${bench.join(", ")}</div>`;
-    if(extra.length) h+=`<div style="font-size:11px;color:#555;margin-top:2px">Hors sélection : ${extra.join(", ")}</div>`;
-    h+=`</div>`;
+    if (!Number.isInteger(exactMin)) {
+      h += `<div style="width:100%;margin-top:6px;font-size:10px;color:#7986cb">★ Ces joueurs ont +1 min car ils ont moins joué cette saison — s'équilibrera au prochain match.</div>`;
+    }
+    h += `</div></div>`;
 
-    // 4 Rotations
-    h+=`<div class="card"><label class="lbl">🔄 4 Rotations — équipe change toutes les 12min30</label>`;
-    rots.forEach((rot,i)=>{
-      const rc=RC[i];
-      const tl=i<2?"🔵 Équipe A":"🟣 Équipe B";
-      h+=`<div style="background:${rc.bg};border:2px solid ${rc.col}44;border-radius:10px;padding:12px;margin-bottom:8px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <span style="font-size:12px;font-weight:700;color:${rc.col}">Rotation ${i+1} · ${tl}</span>
-          <span style="font-size:10px;background:${rc.col}22;color:${rc.col};padding:3px 8px;border-radius:8px;font-weight:700">${rc.t}</span>
+    // Rotations
+    h += `<div class="card"><label class="lbl">🔄 ${slices.length} rotations · ${sliceDur} min chacune</label>`;
+    let cumul = 0;
+    slices.forEach((sl, i) => {
+      const col = ROT_COLORS[i % ROT_COLORS.length];
+      const tStart = fmtTime(cumul);
+      const tEnd   = fmtTime(cumul + sl.dur);
+      cumul += sl.dur;
+      const resting = field.filter(n => !sl.team.includes(n));
+
+      h += `<div style="background:#0a0e1a;border:2px solid ${col}55;border-radius:10px;padding:11px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;">
+          <span style="font-size:12px;font-weight:700;color:${col}">Rotation ${i+1}</span>
+          <span style="font-size:10px;background:${col}22;color:${col};padding:3px 8px;border-radius:8px;font-weight:700">${tStart} → ${tEnd}</span>
         </div>
-        <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center;">`;
-      SLOTS.forEach(pos=>{
-        const name=rot[pos];const pi=POS[pos];
-        if(!name){
-          h+=`<div style="background:#2d1010;border:1px dashed #e74c3c44;border-radius:8px;padding:8px 5px;text-align:center;min-width:54px;flex:1">
-            <div style="font-size:11px;color:#e74c3c">❌</div><div style="font-size:9px;color:#e74c3c">${pi.num}</div></div>`;
-        } else {
-          h+=`<div style="background:${pi.bg};border:2px solid ${pi.color}66;border-radius:8px;padding:8px 5px;text-align:center;min-width:54px;flex:1">
-            <div style="font-size:15px">${pi.emoji}</div>
-            <div style="font-size:11px;font-weight:700;color:${pi.color};margin-top:2px">${name}</div>
-            <div style="font-size:9px;color:${pi.color}88">${pi.num}</div>
-          </div>`;
-        }
-      });
-      h+=`</div></div>`;
-    });
-    h+=`</div>`;
+        <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;margin-bottom:${resting.length?7:0}px;">`;
 
-    h+=`<button class="btn-save" onclick="saveMatch()" ${S.saved?"disabled":""}>
+      // GK fixe
+      h += `<div style="background:${POS.GK.bg};border:2px solid ${POS.GK.color}66;border-radius:8px;padding:8px 4px;text-align:center;min-width:52px;flex:1">
+        <div style="font-size:14px">${POS.GK.emoji}</div>
+        <div style="font-size:10px;font-weight:700;color:${POS.GK.color};margin-top:2px">Jorvie</div>
+        <div style="font-size:9px;color:${POS.GK.color}88">GK</div>
+      </div>`;
+
+      // 4 postes de champ
+      ["DC","N7","N11","N9"].forEach(pos => {
+        const name = sl.ass[pos], pi = POS[pos];
+        h += `<div style="background:${pi.bg};border:2px solid ${pi.color}66;border-radius:8px;padding:8px 4px;text-align:center;min-width:52px;flex:1">
+          <div style="font-size:14px">${pi.emoji}</div>
+          <div style="font-size:10px;font-weight:700;color:${pi.color};margin-top:2px">${name||"—"}</div>
+          <div style="font-size:9px;color:${pi.color}88">${pi.num}</div>
+        </div>`;
+      });
+
+      h += `</div>`;
+      if (resting.length) {
+        h += `<div style="font-size:10px;color:#555;text-align:center;padding-top:2px">🪑 Repos : <span style="color:#7986cb">${resting.join(", ")}</span></div>`;
+      }
+      h += `</div>`;
+    });
+    h += `</div>`;
+
+    h += `<button class="btn-save" onclick="saveMatch()" ${S.saved?"disabled":""}>
       ${S.saved?"✅ Match enregistré !":"💾 Valider et enregistrer ce match"}
     </button>`;
   }
 
-  document.getElementById("tab-match").innerHTML=h;
+  document.getElementById("tab-match").innerHTML = h;
 }
 
-// ═══════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
 // RENDER HISTORY
-// ═══════════════════════════════════════════════════════
-function renderHistory(){
-  let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+// ════════════════════════════════════════════════════════
+function renderHistory() {
+  let h = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <h2 style="font-size:15px;color:#9fa8da">📋 ${S.matches.length} match${S.matches.length>1?"s":""}</h2>
     ${S.matches.length?`<button class="btn-danger" onclick="clearAll()">🗑️ Tout effacer</button>`:""}
   </div>`;
-  if(!S.matches.length){
-    h+=`<div style="text-align:center;color:#555;padding:40px"><div style="font-size:36px;margin-bottom:8px">📭</div>Aucun match enregistré</div>`;
-    document.getElementById("tab-history").innerHTML=h;return;
+  if (!S.matches.length) {
+    h += `<div style="text-align:center;color:#555;padding:40px"><div style="font-size:36px;margin-bottom:8px">📭</div>Aucun match enregistré</div>`;
+    document.getElementById("tab-history").innerHTML = h; return;
   }
-  h+=`<div class="card"><label class="lbl">👤 Stats par joueur</label>
+
+  // Stats par joueur
+  h += `<div class="card"><label class="lbl">👤 Stats par joueur</label>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(138px,1fr));gap:7px;">`;
-  ALL.forEach(name=>{
-    const entries=S.hist[name]||[];
-    const pi=POS[gP(name).pos[0]];
-    const total=entries.reduce((s,e)=>s+(e.mins||0),0);
-    h+=`<div style="background:#0d1226;border-radius:9px;padding:9px;border-left:3px solid ${pi.color}">
+  ALL.forEach(name => {
+    const entries = S.hist[name]||[], pi = POS[gP(name).pos[0]];
+    const total = entries.reduce((s,e) => s+(e.mins||0), 0);
+    h += `<div style="background:#0d1226;border-radius:9px;padding:9px;border-left:3px solid ${pi.color}">
       <div style="font-weight:700;font-size:11px;margin-bottom:2px">${pi.emoji} ${name}</div>
-      <div style="font-size:10px;color:#7986cb">${entries.length} convoc. · ${total}min</div>
+      <div style="font-size:10px;color:#7986cb">${entries.length} convoc. · ${Math.round(total)}min</div>
       <div style="font-size:10px;color:#555">${entries.length?fmt(entries[0].date):"—"}</div>
     </div>`;
   });
-  h+=`</div></div>`;
-  S.matches.forEach(m=>{
-    h+=`<div class="card">
+  h += `</div></div>`;
+
+  // Liste des matchs
+  S.matches.forEach(m => {
+    h += `<div class="card">
       <div style="font-weight:700;color:#7eb6ff;font-size:13px;margin-bottom:10px">📅 ${fmt(m.date)}</div>`;
-    h+=`<label class="lbl" style="margin-bottom:5px">✅ Convoqués (${m.convoked.length})</label>
+    h += `<label class="lbl" style="margin-bottom:5px">✅ Convoqués (${m.convoked.length})</label>
       <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">`;
-    m.convoked.forEach(c=>{
-      const pi=POS[gP(c.name).pos[0]];
-      const mc=c.mins>=50?"#f39c12":c.mins>=25?"#2ecc71":"#7eb6ff";
-      h+=`<span style="background:#1a2a4a;padding:4px 8px;border-radius:12px;font-size:11px;border:1px solid ${pi.color}33">
-        ${pi.emoji} <strong>${c.name}</strong> <span style="color:${mc}">${c.mins}min</span></span>`;
+    m.convoked.forEach(c => {
+      const pi = POS[gP(c.name).pos[0]];
+      const col = c.name==="Jorvie"?"#f39c12":"#2ecc71";
+      h += `<span style="background:#1a2a4a;padding:4px 8px;border-radius:12px;font-size:11px;border:1px solid ${pi.color}33">
+        ${pi.emoji} <strong>${c.name}</strong> <span style="color:${col}">${Math.round(c.mins)}min</span>
+      </span>`;
     });
-    h+=`</div>`;
-    if(m.absent&&m.absent.length){
-      h+=`<label class="lbl" style="color:#e74c3c;margin-bottom:4px">❌ Absents (${m.absent.length})</label>
+    h += `</div>`;
+    if (m.absent?.length) {
+      h += `<label class="lbl" style="color:#e74c3c;margin-bottom:4px">❌ Absents (${m.absent.length})</label>
         <div style="display:flex;flex-wrap:wrap;gap:4px;">`;
-      m.absent.forEach(name=>{
-        const pi=POS[gP(name).pos[0]];
-        h+=`<span style="background:#2d1010;padding:3px 8px;border-radius:12px;font-size:11px;border:1px solid #e74c3c22;color:#ff8a80">${pi.emoji} ${name}</span>`;
+      m.absent.forEach(name => {
+        const pi = POS[gP(name).pos[0]];
+        h += `<span style="background:#2d1010;padding:3px 8px;border-radius:12px;font-size:11px;color:#ff8a80">${pi.emoji} ${name}</span>`;
       });
-      h+=`</div>`;
+      h += `</div>`;
     } else {
-      h+=`<div style="font-size:11px;color:#2ecc71">✅ Tout le monde présent !</div>`;
+      h += `<div style="font-size:11px;color:#2ecc71">✅ Tout le monde présent !</div>`;
     }
-    if(m.rots){
-      h+=`<details style="margin-top:10px"><summary style="font-size:11px;color:#7986cb;cursor:pointer">Voir les rotations ▾</summary>
-        <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;">`;
-      m.rots.forEach((rot,i)=>{
-        const rc=RC[i];
-        h+=`<div style="background:${rc.bg};border:1px solid ${rc.col}44;border-radius:8px;padding:8px;">
-          <div style="font-size:10px;color:${rc.col};font-weight:700;margin-bottom:5px">R${rot.num} · ${rc.t}</div>`;
-        SLOTS.forEach(pos=>{if(rot[pos]){const pi=POS[pos];h+=`<div style="font-size:10px;color:#9fa8da">${pi.emoji} <strong>${rot[pos]}</strong> <span style="color:${pi.color}">${pi.num}</span></div>`;}});
-        h+=`</div>`;
+    if (m.slices) {
+      h += `<details style="margin-top:10px"><summary style="font-size:11px;color:#7986cb;cursor:pointer">Voir les rotations ▾</summary>
+        <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:5px;">`;
+      m.slices.forEach((sl,i) => {
+        const col = ROT_COLORS[i%ROT_COLORS.length];
+        h += `<div style="background:#0a0e1a;border:1px solid ${col}44;border-radius:8px;padding:8px;">
+          <div style="font-size:10px;color:${col};font-weight:700;margin-bottom:5px">R${sl.num} · ${sl.dur}min</div>`;
+        ["DC","N7","N11","N9"].forEach(pos => {
+          if (sl[pos]) { const pi=POS[pos]; h+=`<div style="font-size:10px;color:#9fa8da">${pi.emoji} <strong>${sl[pos]}</strong> <span style="color:${pi.color}">${pi.num}</span></div>`; }
+        });
+        h += `</div>`;
       });
-      h+=`</div></details>`;
+      h += `</div></details>`;
     }
-    h+=`</div>`;
+    h += `</div>`;
   });
-  document.getElementById("tab-history").innerHTML=h;
+  document.getElementById("tab-history").innerHTML = h;
 }
 
-// ═══════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
 // RENDER ROSTER
-// ═══════════════════════════════════════════════════════
-function renderRoster(){
-  let h=`<h2 style="font-size:15px;color:#9fa8da;margin-bottom:12px">👥 Effectif & postes</h2>`;
-  h+=`<div class="card"><label class="lbl">🏟️ Formation — 1·1·2·1</label>
+// ════════════════════════════════════════════════════════
+function renderRoster() {
+  let h = `<h2 style="font-size:15px;color:#9fa8da;margin-bottom:12px">👥 Effectif & postes</h2>`;
+  h += `<div class="card"><label class="lbl">🏟️ Formation — 1·1·2·1</label>
     <div style="background:linear-gradient(180deg,#0d2e0d,#0a1a0a);border-radius:10px;padding:14px 8px;border:2px solid #1a5c1a;">`;
-  [["N9"],["N7","N11"],["DC"],["GK"]].forEach(row=>{
-    h+=`<div style="display:flex;justify-content:center;gap:10px;margin:5px 0;">`;
-    row.forEach(pos=>{
-      const pi=POS[pos];
-      h+=`<div style="background:${pi.bg};border:2px solid ${pi.color};border-radius:8px;padding:7px 14px;text-align:center;min-width:70px">
+  [["N9"],["N7","N11"],["DC"],["GK"]].forEach(row => {
+    h += `<div style="display:flex;justify-content:center;gap:10px;margin:5px 0;">`;
+    row.forEach(pos => {
+      const pi = POS[pos];
+      h += `<div style="background:${pi.bg};border:2px solid ${pi.color};border-radius:8px;padding:7px 14px;text-align:center;min-width:70px">
         <div style="font-size:14px">${pi.emoji}</div>
         <div style="font-size:11px;font-weight:700;color:${pi.color}">${pi.num}</div>
         <div style="font-size:9px;color:${pi.color}88">${pi.label}</div>
       </div>`;
     });
-    h+=`</div>`;
+    h += `</div>`;
   });
-  h+=`</div></div>`;
-  const byPos={GK:[],DC:[],N7:[],N11:[],N9:[]};
-  PLAYERS.forEach(p=>p.pos.forEach(pos=>{if(byPos[pos])byPos[pos].push(p);}));
-  SLOTS.forEach(pos=>{
-    const players=byPos[pos];const pi=POS[pos];
-    h+=`<div class="card" style="border-left:4px solid ${pi.color}">
+  h += `</div></div>`;
+
+  // Tableau récapitulatif temps de jeu
+  h += `<div class="card"><label class="lbl">📊 Temps de jeu selon effectif</label>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+      <tr style="color:#7986cb;border-bottom:1px solid #1e2d50;">
+        <td style="padding:5px 8px">Joueurs de champ</td>
+        <td style="padding:5px 8px;text-align:center">Total</td>
+        <td style="padding:5px 8px;text-align:center">Temps chacun</td>
+      </tr>`;
+  [[4,50],[5,40],[6,"33-34"],[7,"28-29"],[8,25]].forEach(([n,t]) => {
+    const exact = n<=5||n===8;
+    h += `<tr style="border-bottom:1px solid #1e2d5033;">
+      <td style="padding:5px 8px;color:#e8eaf6">${n} joueurs de champ</td>
+      <td style="padding:5px 8px;text-align:center;color:#7986cb">1 GK + ${n}</td>
+      <td style="padding:5px 8px;text-align:center;font-weight:700;color:${exact?"#2ecc71":"#7eb6ff"}">${t} min</td>
+    </tr>`;
+  });
+  h += `</table></div>`;
+
+  const byPos = {GK:[],DC:[],N7:[],N11:[],N9:[]};
+  PLAYERS.forEach(p => p.pos.forEach(pos => { if(byPos[pos]) byPos[pos].push(p); }));
+  SLOTS.forEach(pos => {
+    const players=byPos[pos], pi=POS[pos];
+    h += `<div class="card" style="border-left:4px solid ${pi.color}">
       <label class="lbl" style="color:${pi.color}">${pi.emoji} ${pi.label} — ${pi.num}</label>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">`;
-    players.forEach(p=>{
-      h+=`<div style="background:#0d1226;border-radius:8px;padding:6px 11px;border:1px solid ${pi.color}33;font-size:12px">
+    players.forEach(p => {
+      h += `<div style="background:#0d1226;border-radius:8px;padding:6px 11px;border:1px solid ${pi.color}33;font-size:12px">
         <strong>${p.name}</strong>
         ${p.fixed?'<span style="font-size:9px;color:#f39c12;margin-left:3px">🔒</span>':""}
         ${p.pos.length>1?'<span style="font-size:9px;color:#a78bfa;margin-left:3px">✦</span>':""}
       </div>`;
     });
-    h+=`</div></div>`;
+    h += `</div></div>`;
   });
-  h+=`<div class="green-note">
+
+  h += `<div class="green-note">
     ✦ <strong>Raf</strong> : DC (n°3) · Ailier G (n°7) · Ailier D (n°11) · Attaquant (n°9)<br>
     ✦ <strong>Mathias</strong> : Ailier G (n°7) · Ailier D (n°11) · Attaquant (n°9)<br>
     Postes adaptés automatiquement selon les besoins de la compo.
   </div>`;
-  document.getElementById("tab-roster").innerHTML=h;
+
+  document.getElementById("tab-roster").innerHTML = h;
 }
 
-computeAlerts();renderMatch();
+computeAlerts(); renderMatch();
 </script>
 </body>
 </html>
