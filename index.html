@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="ACCF Football"/>
-<title>⚽ ACCF Football RFC HOUDINOIS – Rotations U9B</title>
+<title>⚽ ACCF Football HOUDENG – Rotations U9B</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:#0a0e1a;color:#e8eaf6;font-family:'Trebuchet MS',sans-serif;min-height:100vh;padding-bottom:80px;}
@@ -57,7 +57,7 @@ const PLAYERS = [
   { name:"Tessio",  pos:["DC"] },
   { name:"Raf",     pos:["DC","N7","N11","N9"] },
   { name:"Ricardo", pos:["DC"] },
-  { name:"Aidan",   pos:["DC"] },
+  { name:"Simon",   pos:["DC"] },
   { name:"Sandro",  pos:["N7","N11"] },
   { name:"Dario",   pos:["N7","N11"] },
   { name:"Thymao",  pos:["N7","N11"] },
@@ -187,36 +187,45 @@ function buildPlan(field) {
   const nCeil     = Math.round(200 - N * floorMin); // nb joueurs avec +1 min
   const nFloor    = N - nCeil;                       // nb joueurs avec floor min
 
-  // ── Nombre de tranches ──
-  // On veut N tranches de durée 50/N min chacune.
-  // Chaque joueur joue dans exactement 4 tranches → 4*(50/N) = 200/N ✓
-  const nbSlices  = N;
-  const sliceDur  = 50 / N; // durée en minutes de chaque tranche
-
-  // ── Construction des tranches par rotation cyclique ──
-  // Tranche i → joueurs aux indices i, i+1, i+2, i+3 (mod N)
+  // ── QUOTA STRICT : chaque joueur joue exactement 4 tranches sur N ──
+  // Durée de chaque tranche = 50/N min → temps par joueur = 4×(50/N) = 200/N ✓
+  const nbSlices = N;
+  const sliceDur = 50 / N;
   const slices = [];
   const playCount = {};
   field.forEach(n => playCount[n] = 0);
+  const quota = 4; // chaque joueur joue EXACTEMENT 4 tranches
 
-  for (let i = 0; i < nbSlices; i++) {
-    // Équipe cyclique
-    const cycleTeam = [0,1,2,3].map(k => field[(i+k) % N]);
-    let ass = assignPos(cycleTeam);
+  function* combosLocal(arr, k) {
+    if (k===0){yield[];return;}
+    for(let i=0;i<=arr.length-k;i++)
+      for(const rest of combosLocal(arr.slice(i+1),k-1)) yield[arr[i],...rest];
+  }
 
-    if (!ass) {
-      // L'équipe cyclique ne peut pas couvrir tous les postes
-      // → on cherche une équipe valide de 4 parmi tous les joueurs
-      // en privilégiant ceux qui ont joué le moins
-      const result = findTeam(field, playCount, null);
-      if (!result) return { error: "Impossible de former une équipe valide." };
-      ass = result.ass;
-      result.team.forEach(n => cycleTeam.splice(0, cycleTeam.length, ...result.team));
+  for (let si = 0; si < nbSlices; si++) {
+    // Joueurs disponibles = ceux qui n'ont pas encore atteint leur quota de 4
+    const available = field.filter(n => playCount[n] < quota);
+    // Trier par moins joué en premier
+    available.sort((a,b) => playCount[a] - playCount[b]);
+
+    let chosen = null;
+    // Chercher une équipe de 4 valide parmi les disponibles
+    for (const combo of combosLocal(available, 4)) {
+      const ass = assignPos(combo);
+      if (ass) { chosen = { team: combo, ass }; break; }
     }
+    // Fallback : ouvrir à tous si besoin
+    if (!chosen) {
+      const all = [...field].sort((a,b) => playCount[a] - playCount[b]);
+      for (const combo of combosLocal(all, 4)) {
+        const ass = assignPos(combo);
+        if (ass) { chosen = { team: combo, ass }; break; }
+      }
+    }
+    if (!chosen) return { error: "Impossible de former une équipe valide pour une rotation." };
 
-    const team = [...cycleTeam];
-    team.forEach(n => playCount[n] = (playCount[n]||0) + 1);
-    slices.push({ dur: sliceDur, team, ass });
+    chosen.team.forEach(n => playCount[n]++);
+    slices.push({ dur: sliceDur, team: chosen.team, ass: chosen.ass });
   }
 
   // ── Calcul des minutes réelles ──
