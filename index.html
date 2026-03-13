@@ -90,7 +90,8 @@ function saveLS(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
 const S = {
   tab:"match", date:"", present:new Set(ALL),
   hist:loadLS("accf7_h",{}), matches:loadLS("accf7_m",[]),
-  plan:null, alerts:[], saved:false
+  plan:null, alerts:[], saved:false,
+  scoreNous:null, scoreEux:null, commentaire:""
 };
 
 // ════════════════════════════════════════════════════════
@@ -283,10 +284,10 @@ function computeAlerts() {
     const entries = (S.hist[name]||[]).sort((a,b) => b.date.localeCompare(a.date));
     if (!entries.length) return;
     const days = daysB(entries[0].date, S.date);
-    if (days < 0) return;
+    if (days <= 0) return; // ignorer le jour même et les dates futures
     const last = fmt(entries[0].date);
-    if (days <= 7)       out.push({name, type:"w", msg:`Convoqué le ${last} (${days}j) — ⚠️ fatigue !`});
-    else if (days <= 14) out.push({name, type:"i", msg:`Convoqué le ${last} (${days}j) — à surveiller`});
+    if (days <= 7)       out.push({name, type:"w", msg:`Convoqué le ${last} (il y a ${days}j) — ⚠️ fatigue !`});
+    else if (days <= 14) out.push({name, type:"i", msg:`Convoqué le ${last} (il y a ${days}j) — à surveiller`});
   });
   S.alerts = out;
 }
@@ -324,6 +325,9 @@ function saveMatch() {
   });
   const rec = {
     date: S.date,
+    scoreNous: S.scoreNous,
+    scoreEux: S.scoreEux,
+    commentaire: S.commentaire||"",
     convoked: ["Jorvie",...field].map(name => ({ name, mins: minutesMap[name]||0 })),
     absent,
     slices: slices.map((sl,i) => ({ num:i+1, dur:Math.round(sl.dur*100)/100, ...sl.ass }))
@@ -475,6 +479,30 @@ function renderMatch() {
     });
     h += `</div>`;
 
+    if (!S.saved) {
+      h += `<div class="card">
+        <label class="lbl">🏆 Score & souvenir</label>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <span style="font-size:11px;color:#9fa8da;white-space:nowrap">ACCF Houdeng</span>
+          <input type="number" min="0" max="99" value="${S.scoreNous??''}"
+            placeholder="0"
+            style="width:52px;background:#1a2340;border:1.5px solid #2a3a6a;border-radius:8px;color:#e8eaf6;padding:8px;font-size:18px;font-weight:700;text-align:center;outline:none;"
+            oninput="S.scoreNous=this.value===''?null:parseInt(this.value)"/>
+          <span style="font-size:18px;font-weight:700;color:#7986cb">—</span>
+          <input type="number" min="0" max="99" value="${S.scoreEux??''}"
+            placeholder="0"
+            style="width:52px;background:#1a2340;border:1.5px solid #2a3a6a;border-radius:8px;color:#e8eaf6;padding:8px;font-size:18px;font-weight:700;text-align:center;outline:none;"
+            oninput="S.scoreEux=this.value===''?null:parseInt(this.value)"/>
+          <span style="font-size:11px;color:#9fa8da;white-space:nowrap">Adversaire</span>
+        </div>
+        <textarea placeholder="Commentaire (ambiance, buts marqués, anecdotes...)" rows="3"
+          style="width:100%;background:#1a2340;border:1.5px solid #2a3a6a;border-radius:8px;color:#e8eaf6;padding:9px 12px;font-size:12px;outline:none;resize:none;font-family:'Trebuchet MS',sans-serif;"
+          oninput="S.commentaire=this.value">${S.commentaire||""}</textarea>
+      </div>`;
+    }
+    if (S.saved && (S.plan.rec?.scoreNous != null || S.plan.rec?.commentaire)) {
+      // affichage post-save géré dans l'historique
+    }
     h += `<button class="btn-save" onclick="saveMatch()" ${S.saved?"disabled":""}>
       ${S.saved?"✅ Match enregistré !":"💾 Valider et enregistrer ce match"}
     </button>`;
@@ -512,8 +540,43 @@ function renderHistory() {
 
   // Liste des matchs
   S.matches.forEach(m => {
+    // Couleur et badge résultat
+    const hasScore = m.scoreNous != null && m.scoreEux != null;
+    let resultBadge = "";
+    if (hasScore) {
+      const win  = m.scoreNous >  m.scoreEux;
+      const draw = m.scoreNous === m.scoreEux;
+      const col  = win ? "#2ecc71" : draw ? "#f39c12" : "#e74c3c";
+      const lbl  = win ? "VICTOIRE 🏆" : draw ? "NUL 🤝" : "DÉFAITE";
+      resultBadge = `<span style="background:${col}22;color:${col};border:1px solid ${col}55;border-radius:8px;padding:3px 10px;font-size:11px;font-weight:700">${lbl}</span>`;
+    }
+
     h += `<div class="card">
-      <div style="font-weight:700;color:#7eb6ff;font-size:13px;margin-bottom:10px">📅 ${fmt(m.date)}</div>`;
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px;">
+        <div style="font-weight:700;color:#7eb6ff;font-size:13px">📅 ${fmt(m.date)}</div>
+        ${resultBadge}
+      </div>`;
+
+    // Score
+    if (hasScore) {
+      const win = m.scoreNous > m.scoreEux;
+      const draw = m.scoreNous === m.scoreEux;
+      const scoreCol = win ? "#2ecc71" : draw ? "#f39c12" : "#e74c3c";
+      h += `<div style="text-align:center;background:#0d1226;border-radius:10px;padding:10px;margin-bottom:10px;border:1px solid ${scoreCol}44;">
+        <div style="font-size:22px;font-weight:700;color:${scoreCol}">${m.scoreNous} — ${m.scoreEux}</div>
+        <div style="font-size:10px;color:#7986cb;margin-top:2px">ACCF Houdeng vs Adversaire</div>
+      </div>`;
+    }
+
+    // Commentaire
+    if (m.commentaire) {
+      h += `<div style="background:#0d1226;border-left:3px solid #7986cb;border-radius:0 8px 8px 0;padding:8px 12px;margin-bottom:10px;font-size:11px;color:#c5cae9;font-style:italic">
+        💬 ${m.commentaire.replace(/
+/g,'<br>')}
+      </div>`;
+    }
+
+    // Convoqués
     h += `<label class="lbl" style="margin-bottom:5px">✅ Convoqués (${m.convoked.length})</label>
       <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">`;
     m.convoked.forEach(c => {
@@ -524,31 +587,43 @@ function renderHistory() {
       </span>`;
     });
     h += `</div>`;
+
+    // Absents
     if (m.absent?.length) {
       h += `<label class="lbl" style="color:#e74c3c;margin-bottom:4px">❌ Absents (${m.absent.length})</label>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;">`;
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">`;
       m.absent.forEach(name => {
         const pi = POS[gP(name).pos[0]];
         h += `<span style="background:#2d1010;padding:3px 8px;border-radius:12px;font-size:11px;color:#ff8a80">${pi.emoji} ${name}</span>`;
       });
       h += `</div>`;
     } else {
-      h += `<div style="font-size:11px;color:#2ecc71">✅ Tout le monde présent !</div>`;
+      h += `<div style="font-size:11px;color:#2ecc71;margin-bottom:10px">✅ Tout le monde présent !</div>`;
     }
-    if (m.slices) {
-      h += `<details style="margin-top:10px"><summary style="font-size:11px;color:#7986cb;cursor:pointer">Voir les rotations ▾</summary>
+
+    // Rotations détaillées
+    if (m.slices && m.slices.length) {
+      h += `<details><summary style="font-size:11px;color:#7986cb;cursor:pointer;padding:4px 0">🔄 Voir les ${m.slices.length} rotations ▾</summary>
         <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:5px;">`;
-      m.slices.forEach((sl,i) => {
-        const col = ROT_COLORS[i%ROT_COLORS.length];
+      m.slices.forEach((sl, i) => {
+        const col = ROT_COLORS[i % ROT_COLORS.length];
+        let cumul = 0;
+        for(let k=0;k<i;k++) cumul += m.slices[k].dur;
+        const tS = fmtTime(cumul), tE = fmtTime(cumul + sl.dur);
         h += `<div style="background:#0a0e1a;border:1px solid ${col}44;border-radius:8px;padding:8px;">
-          <div style="font-size:10px;color:${col};font-weight:700;margin-bottom:5px">R${sl.num} · ${sl.dur}min</div>`;
+          <div style="font-size:10px;color:${col};font-weight:700;margin-bottom:6px">R${sl.num} · ${tS}→${tE}</div>
+          <div style="font-size:9px;color:#555;margin-bottom:4px">${POS.GK.emoji} Jorvie GK</div>`;
         ["DC","N7","N11","N9"].forEach(pos => {
-          if (sl[pos]) { const pi=POS[pos]; h+=`<div style="font-size:10px;color:#9fa8da">${pi.emoji} <strong>${sl[pos]}</strong> <span style="color:${pi.color}">${pi.num}</span></div>`; }
+          if (sl[pos]) {
+            const pi = POS[pos];
+            h += `<div style="font-size:10px;color:#9fa8da;margin-bottom:2px">${pi.emoji} <strong>${sl[pos]}</strong> <span style="color:${pi.color}">${pi.num}</span></div>`;
+          }
         });
         h += `</div>`;
       });
       h += `</div></details>`;
     }
+
     h += `</div>`;
   });
   document.getElementById("tab-history").innerHTML = h;
