@@ -208,12 +208,34 @@ function buildPlan(field) {
     // Trier par moins joué en premier
     available.sort((a,b) => playCount[a] - playCount[b]);
 
+    // ── Priorité DC consécutif ──
+    // Si le DC de la tranche précédente a encore du quota, on le force en premier
+    // pour maximiser sa continuité sur le poste défenseur.
+    const prevDC = si > 0 ? slices[si-1].ass["DC"] : null;
+    const prevDCAvailable = prevDC && playCount[prevDC] < quota;
+
     let chosen = null;
-    // Chercher une équipe de 4 valide parmi les disponibles
-    for (const combo of combosLocal(available, 4)) {
-      const ass = assignPos(combo);
-      if (ass) { chosen = { team: combo, ass }; break; }
+
+    // Essai 1 : forcer le DC précédent si disponible
+    if (prevDCAvailable) {
+      const othersAvail = available.filter(n => n !== prevDC);
+      for (const combo3 of combosLocal(othersAvail, 3)) {
+        const team4 = [prevDC, ...combo3];
+        const ass = assignPos(team4);
+        // Vérifier que prevDC est bien assigné en DC
+        if (ass && ass["DC"] === prevDC) { chosen = { team: team4, ass }; break; }
+      }
+      // Si prevDC ne peut pas tenir DC mais peut jouer ailleurs, on laisse tomber la contrainte
     }
+
+    // Essai 2 : meilleure équipe sans contrainte DC
+    if (!chosen) {
+      for (const combo of combosLocal(available, 4)) {
+        const ass = assignPos(combo);
+        if (ass) { chosen = { team: combo, ass }; break; }
+      }
+    }
+
     // Fallback : ouvrir à tous si besoin
     if (!chosen) {
       const all = [...field].sort((a,b) => playCount[a] - playCount[b]);
