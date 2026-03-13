@@ -166,6 +166,10 @@ function* combosLocal(arr, k) {
 function buildPlan(field) {
   const N = field.length;
 
+  if (N < 4 || N > 7) {
+    return { error: "Cette version gère de 4 à 7 joueurs de champ." };
+  }
+
   for (const pos of ["DC","N7","N11","N9"]) {
     if (!field.some(n => can(n, pos))) {
       return { error: `Aucun joueur disponible pour le poste ${POS[pos].label} (${POS[pos].num}).` };
@@ -175,68 +179,100 @@ function buildPlan(field) {
   const exactMin = 200 / N;
   const exactSec = Math.round(exactMin * 60);
 
-  const nbSlices = N;
+  const nbSlices = N;         // 4 joueurs de champ -> 4 rotations, 6 -> 6, 7 -> 7
   const sliceDur = 50 / N;
-  const slices = [];
+  const quota = 4;            // chaque joueur doit jouer exactement 4 rotations
+
   const playCount = {};
-  const quota = 4;
+  field.forEach(p => playCount[p] = 0);
 
-  field.forEach(n => {
-    playCount[n] = 0;
-  });
+  const slices = [];
 
-  for (let si = 0; si < nbSlices; si++) {
-    const available = field.filter(n => playCount[n] < quota);
-    available.sort((a, b) => playCount[a] - playCount[b]);
+  function allQuotasRespectedAtEnd() {
+    return field.every(p => playCount[p] === quota);
+  }
 
-    const prevDC = si > 0 ? slices[si - 1].ass["DC"] : null;
-    const prevDCAvailable = prevDC && playCount[prevDC] < quota;
+  function remainingNeed() {
+    return field.reduce((sum, p) => sum + (quota - playCount[p]), 0);
+  }
 
-    let chosen = null;
-
-    if (prevDCAvailable) {
-      const othersAvail = available.filter(n => n !== prevDC);
-      for (const combo3 of combosLocal(othersAvail, 3)) {
-        const team4 = [prevDC, ...combo3];
-        const ass = assignPos(team4);
-        if (ass && ass["DC"] === prevDC) {
-          chosen = { team: team4, ass };
-          break;
-        }
-      }
+  function backtrack(sliceIndex) {
+    if (sliceIndex === nbSlices) {
+      return allQuotasRespectedAtEnd();
     }
 
-    if (!chosen) {
-      for (const combo of combosLocal(available, 4)) {
-        const ass = assignPos(combo);
-        if (ass) {
-          chosen = { team: combo, ass };
-          break;
-        }
-      }
-    }
+    // nombre total de places restantes = rotations restantes * 4 postes
+    const slicesLeft = nbSlices - sliceIndex;
+    if (remainingNeed() !== slicesLeft * 4) return false;
 
-    if (!chosen) {
-      const all = [...field].sort((a, b) => playCount[a] - playCount[b]);
-      for (const combo of combosLocal(all, 4)) {
-        const ass = assignPos(combo);
-        if (ass) {
-          chosen = { team: combo, ass };
-          break;
-        }
-      }
-    }
+    const available = field.filter(p => playCount[p] < quota);
 
-    if (!chosen) {
-      return { error: "Impossible de former une équipe valide pour une rotation." };
-    }
+    if (available.length < 4) return false;
 
-    chosen.team.forEach(n => playCount[n]++);
-    slices.push({
-      dur: sliceDur,
-      team: chosen.team,
-      ass: chosen.ass
+    const prevDC = sliceIndex > 0 ? slices[sliceIndex - 1].ass["DC"] : null;
+
+    const combos = [...combosLocal(available, 4)];
+
+    // Priorité à ceux qui ont le moins joué
+    combos.sort((a, b) => {
+      const sa = a.reduce((s, p) => s + playCount[p], 0);
+      const sb = b.reduce((s, p) => s + playCount[p], 0);
+
+      // légère priorité pour garder le même DC si possible
+      const aKeepDC = prevDC && a.includes(prevDC) ? 0 : 1;
+      const bKeepDC = prevDC && b.includes(prevDC) ? 0 : 1;
+
+      if (aKeepDC !== bKeepDC) return aKeepDC - bKeepDC;
+      return sa - sb;
     });
+
+    // Passe 1 : on essaie de garder le même DC si possible
+    for (const combo of combos) {
+      const ass = assignPos(combo);
+      if (!ass) continue;
+
+      if (prevDC && combo.includes(prevDC) && ass["DC"] !== prevDC) {
+        continue;
+      }
+
+      combo.forEach(p => playCount[p]++);
+      slices.push({
+        dur: sliceDur,
+        team: combo,
+        ass
+      });
+
+      if (backtrack(sliceIndex + 1)) return true;
+
+      slices.pop();
+      combo.forEach(p => playCount[p]--);
+    }
+
+    // Passe 2 : on relâche la contrainte du même DC
+    for (const combo of combos) {
+      const ass = assignPos(combo);
+      if (!ass) continue;
+
+      combo.forEach(p => playCount[p]++);
+      slices.push({
+        dur: sliceDur,
+        team: combo,
+        ass
+      });
+
+      if (backtrack(sliceIndex + 1)) return true;
+
+      slices.pop();
+      combo.forEach(p => playCount[p]--);
+    }
+
+    return false;
+  }
+
+  const ok = backtrack(0);
+
+  if (!ok) {
+    return { error: "Impossible de générer des rotations parfaitement équilibrées avec cette sélection." };
   }
 
   const minutesMap = { Jorvie: 50 };
