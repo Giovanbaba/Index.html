@@ -142,23 +142,58 @@ function buildPlan(field) {
   const playCount = {};
   field.forEach(n => playCount[n] = 0);
 
+  // Noyau dur : ces joueurs doivent jouer ensemble autant que possible
+  const CORE = ["Tessio","Raf","Dario","Sandro","Mathias"];
+
   for (let si = 0; si < N; si++) {
     const available = field.filter(n => playCount[n] < quota);
-    // Trier : moins joué en premier (pour équité)
     available.sort((a,b) => playCount[a] - playCount[b]);
 
     let chosen = null;
 
-    // ── STRATÉGIE CONTINUITÉ ──
-    // On récupère l'équipe précédente et on essaie de garder le max de joueurs
-    if (si > 0) {
+    // ── PRIORITÉ 1 : NOYAU DUR ──
+    // Essayer de former une équipe de 4 avec le maximum de joueurs du noyau dur
+    // parmi ceux disponibles, en commençant par 4, puis 3 du noyau + 1 autre
+    const coreAvail = available.filter(n => CORE.includes(n));
+    if (coreAvail.length >= 4) {
+      // Essayer toutes les combos de 4 parmi le noyau disponible
+      // Priorité aux combos qui maximisent la continuité avec la rotation précédente
+      const prevTeam = si > 0 ? slices[si-1].team : [];
+      const coreAvailSorted = [...coreAvail].sort((a,b) => {
+        const aInPrev = prevTeam.includes(a) ? -1 : 0;
+        const bInPrev = prevTeam.includes(b) ? -1 : 0;
+        return aInPrev - bInPrev + (playCount[a] - playCount[b]);
+      });
+      for (const combo of combosLocal(coreAvailSorted, 4)) {
+        const ass = assignPos(combo);
+        if (ass) { chosen = { team: combo, ass }; break; }
+      }
+    }
+    if (!chosen && coreAvail.length === 3) {
+      // 3 du noyau + 1 autre disponible
+      const others = available.filter(n => !CORE.includes(n));
+      for (const fill of others) {
+        const team4 = [...coreAvail, fill];
+        const ass = assignPos(team4);
+        if (ass) { chosen = { team: team4, ass }; break; }
+      }
+    }
+    if (!chosen && coreAvail.length === 2) {
+      // 2 du noyau + 2 autres
+      const others = available.filter(n => !CORE.includes(n));
+      for (const fillCombo of combosLocal(others, 2)) {
+        const team4 = [...coreAvail, ...fillCombo];
+        const ass = assignPos(team4);
+        if (ass) { chosen = { team: team4, ass }; break; }
+      }
+    }
+
+    // ── PRIORITÉ 2 : CONTINUITÉ (si noyau dur pas possible) ──
+    if (!chosen && si > 0) {
       const prevTeam = slices[si-1].team;
-      // Joueurs de l'équipe précédente qui ont encore du quota
       const keepable = prevTeam.filter(n => playCount[n] < quota);
-      // On essaie de garder 3, puis 2, puis 1 joueur de l'équipe précédente
       for (let keep = Math.min(keepable.length, 3); keep >= 1 && !chosen; keep--) {
         for (const keptCombo of combosLocal(keepable, keep)) {
-          // Compléter avec des joueurs disponibles non encore dans keptCombo
           const rest = available.filter(n => !keptCombo.includes(n));
           const need = 4 - keep;
           for (const fillCombo of combosLocal(rest, need)) {
@@ -171,7 +206,7 @@ function buildPlan(field) {
       }
     }
 
-    // ── FALLBACK : meilleure équipe sans contrainte de continuité ──
+    // ── FALLBACK : meilleure équipe disponible ──
     if (!chosen) {
       for (const combo of combosLocal(available, 4)) {
         const ass = assignPos(combo);
@@ -366,14 +401,25 @@ function renderMatch() {
         sortants = slices[i-1].team.filter(n => !curr.has(n));
       }
 
-      h += `<div style="background:#0a0e1a;border:2px solid ${col}55;border-radius:10px;padding:11px;margin-bottom:8px;">
+      // Compter combien du noyau dur jouent cette rotation
+      const CORE_DISPLAY = ["Tessio","Raf","Dario","Sandro","Mathias"];
+      const coreInRot = sl.team.filter(n => CORE_DISPLAY.includes(n));
+      const coreAllThere = coreInRot.length >= 4;
+      const coreBadge = coreAllThere
+        ? `<span style="font-size:9px;background:#2a1040;color:#c084fc;padding:2px 7px;border-radius:6px;border:1px solid #9333ea55">⭐ Noyau dur (${coreInRot.length}/4)</span>`
+        : coreInRot.length === 3
+          ? `<span style="font-size:9px;background:#1a1030;color:#a78bfa;padding:2px 7px;border-radius:6px;border:1px solid #7c3aed44">◆ ${coreInRot.length}/4 noyau</span>`
+          : ``;
+
+      h += `<div style="background:#0a0e1a;border:2px solid ${coreAllThere?'#9333ea':col}55;border-radius:10px;padding:11px;margin-bottom:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;">
-          <div style="display:flex;align-items:center;gap:8px;">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
             <span style="font-size:12px;font-weight:700;color:${col}">Rotation ${i+1}</span>
+            ${coreBadge}
             ${entrants.length===0&&i>0
-              ? `<span style="font-size:9px;background:#1a3a1a;color:#2ecc71;padding:2px 7px;border-radius:6px;border:1px solid #2ecc7144">✓ Équipe inchangée</span>`
+              ? `<span style="font-size:9px;background:#1a3a1a;color:#2ecc71;padding:2px 7px;border-radius:6px;border:1px solid #2ecc7144">✓ Inchangée</span>`
               : entrants.length>0
-                ? `<span style="font-size:9px;background:#1a1a3a;color:#7eb6ff;padding:2px 7px;border-radius:6px;border:1px solid #3f7fff44">↔ ${entrants.join(", ")} entre</span>`
+                ? `<span style="font-size:9px;background:#1a1a3a;color:#7eb6ff;padding:2px 7px;border-radius:6px;border:1px solid #3f7fff44">↔ ${entrants.join(", ")}</span>`
                 : ``}
           </div>
           <span style="font-size:10px;background:${col}22;color:${col};padding:3px 8px;border-radius:8px;font-weight:700">${tStart} → ${tEnd}</span>
