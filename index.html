@@ -38,7 +38,7 @@ code.inline{background:#0d1226;border:1px solid #24345e;padding:1px 6px;border-r
 <div id="header">
   <div class="sub">⚽ ACCF Football HOUDENG · U9B · 5v5</div>
   <h1>Gestionnaire Rotations</h1>
-  <div class="desc">8 présents = 1 gardien fixe + 7 joueurs de champ · 7 rotations · 4 apparitions par joueur</div>
+  <div class="desc">8 présents = 1 gardien fixe + 7 joueurs de champ · 4 rotations · minimum 25 min pour tous · répartition équitable</div>
 </div>
 <div id="tabs">
   <button class="tab-btn active" onclick="showTab('match')">🗓️ Match</button>
@@ -68,7 +68,7 @@ const PLAYERS = [
 const ALL   = PLAYERS.map(p => p.name);
 const SLOTS = ["GK","DC","N7","N11","N9"];
 const FIELD_POSITIONS = ["DC","N7","N11","N9"];
-const TOTAL_ROTATIONS = 7;
+const TOTAL_ROTATIONS = 4;
 const POS   = {
   GK:  { label:"Gardien",   num:"GK",   emoji:"🧤", color:"#f39c12", bg:"#2a1a00" },
   DC:  { label:"Défenseur", num:"n°3",  emoji:"🛡️", color:"#3498db", bg:"#001828" },
@@ -77,8 +77,7 @@ const POS   = {
   N9:  { label:"Attaquant", num:"n°9",  emoji:"⚽", color:"#e74c3c", bg:"#280000" },
 };
 const ROT_COLORS = [
-  "#2196f3","#9c27b0","#4caf50","#f44336",
-  "#ff9800","#00bcd4","#e91e63"
+  "#2196f3","#9c27b0","#4caf50","#f44336"
 ];
 const CORE = new Set(["Tessio","Raf","Dario","Sandro","Mathias"]);
 
@@ -142,6 +141,7 @@ function* combosLocal(arr, k) {
       yield[arr[i],...rest];
 }
 
+
 function buildPlan(field) {
   const N = field.length;
   if (N !== 7) {
@@ -154,8 +154,11 @@ function buildPlan(field) {
     }
   }
 
-  const sliceDur = 50 / TOTAL_ROTATIONS;
-  const quota = 4;
+  const sliceDur = 50 / TOTAL_ROTATIONS; // 12m30
+  const totalSlots = TOTAL_ROTATIONS * 4; // 16
+  const minRots = Math.floor(totalSlots / N); // 2
+  const extraSlots = totalSlots - (minRots * N); // 2
+  const maxRots = minRots + 1; // 3
 
   const validTeams = [];
   for (const combo of combosLocal(field, 4)) {
@@ -172,42 +175,41 @@ function buildPlan(field) {
     return { error:"Impossible de former une équipe valide avec ces 7 joueurs de champ." };
   }
 
-  // Priorité :
-  // 1) tout le monde à 4 rotations exactes
-  // 2) meilleur score de postes
-  // 3) noyau dur en bonus secondaire
-  // Utilise une mémoïsation par état pour éviter de geler le navigateur.
   const idx = Object.fromEntries(field.map((n, i) => [n, i]));
   const memo = new Map();
 
-  function encodeCounts(counts) {
-    return counts.join('|');
-  }
-
   function solve(counts, rotationIndex) {
-    const key = rotationIndex + '::' + encodeCounts(counts);
+    const key = rotationIndex + "::" + counts.join("|");
     if (memo.has(key)) return memo.get(key);
 
     if (rotationIndex === TOTAL_ROTATIONS) {
-      const ok = counts.every(c => c === quota);
-      const res = ok ? { score: 0, plan: [] } : null;
+      const okMin = counts.every(c => c >= minRots && c <= maxRots);
+      const nbMax = counts.filter(c => c === maxRots).length;
+      const res = (okMin && nbMax === extraSlots) ? { score: 0, plan: [] } : null;
       memo.set(key, res);
       return res;
     }
 
-    const remainingAfterThis = TOTAL_ROTATIONS - rotationIndex - 1;
+    const remainingTeams = TOTAL_ROTATIONS - rotationIndex - 1;
     let best = null;
 
     const candidates = validTeams.filter(({ team }) => {
       const next = counts.slice();
       for (const n of team) {
         const i = idx[n];
-        if (next[i] >= quota) return false;
+        if (next[i] >= maxRots) return false;
         next[i]++;
       }
+
       for (let i = 0; i < next.length; i++) {
-        if ((quota - next[i]) > remainingAfterThis) return false;
+        const needMin = Math.max(0, minRots - next[i]);
+        if (needMin > remainingTeams) return false;
+        if (next[i] > maxRots) return false;
       }
+
+      const alreadyAtMax = next.filter(c => c === maxRots).length;
+      if (alreadyAtMax > extraSlots) return false;
+
       return true;
     }).sort((a, b) => {
       if (b.posScore !== a.posScore) return b.posScore - a.posScore;
@@ -222,7 +224,9 @@ function buildPlan(field) {
       const tail = solve(next, rotationIndex + 1);
       if (!tail) continue;
 
-      const score = (cand.posScore * 100) + (cand.coreCount * 10) + tail.score;
+      const spreadNow = Math.max(...next) - Math.min(...next);
+      const score = (100000 - spreadNow * 1000) + (cand.posScore * 100) + (cand.coreCount * 10) + tail.score;
+
       if (!best || score > best.score) {
         best = {
           score,
@@ -238,7 +242,7 @@ function buildPlan(field) {
   const solved = solve(new Array(N).fill(0), 0);
 
   if (!solved || !solved.plan) {
-    return { error:"Aucun plan exact trouvé : chacun doit jouer 4 rotations sur 7." };
+    return { error:"Aucun plan équitable trouvé : chacun doit jouer au moins 2 rotations, et seulement 2 joueurs montent à 3 rotations." };
   }
 
   const bestPlan = solved.plan;
@@ -259,15 +263,16 @@ function buildPlan(field) {
     slices: bestPlan,
     minutesMap,
     field,
-    exactMin: quota * sliceDur,
+    exactMin: minRots * sliceDur,
+    exactMax: maxRots * sliceDur,
     sliceDur,
     totalChanges,
-    allEqual:true,
-    minRots:4,
-    maxRots:4
+    allEqual:false,
+    minRots,
+    maxRots,
+    extraSlots
   };
 }
-
 function computeAlerts() {
   if (!S.date) { S.alerts=[]; return; }
   const out = [];
@@ -378,7 +383,7 @@ function renderMatch() {
   });
   h += `</div>`;
   if (absent.length) h += `<div style="margin-top:8px;font-size:11px;color:#e74c3c">❌ Absents : ${absent.join(", ")}</div>`;
-  h += `<div class="small-note" style="margin-top:10px">Il faut <strong>obligatoirement 8 présents</strong> : <strong>Jorvie</strong> + <strong>7 joueurs de champ</strong>. Chacun des 7 joueurs de champ jouera <strong>4 rotations sur 7</strong>, soit <strong>${fmtMinutesLabel(4*(50/7))}</strong>.</div>`;
+  h += `<div class="small-note" style="margin-top:10px">Il faut <strong>obligatoirement 8 présents</strong> : <strong>Jorvie</strong> + <strong>7 joueurs de champ</strong>. Le moteur génère <strong>4 rotations</strong> : tout le monde joue <strong>au moins 2 rotations</strong> soit <strong>${fmtMinutesLabel(2*(50/4))}</strong>, et seulement <strong>2 joueurs</strong> montent à <strong>3 rotations</strong> soit <strong>${fmtMinutesLabel(3*(50/4))}</strong>.</div>`;
   h += `</div>`;
 
   if (fieldCount !== 7) {
@@ -392,14 +397,14 @@ function renderMatch() {
   h += `<button class="btn-main" onclick="generate()">⚡ Générer les rotations</button>`;
 
   if (S.plan) {
-    const {slices, minutesMap, field, exactMin, sliceDur, totalChanges} = S.plan;
+    const {slices, minutesMap, field, exactMin, exactMax, sliceDur, totalChanges, minRots, maxRots} = S.plan;
 
     h += `<div class="card">
-      <label class="lbl">⏱ Temps de jeu exact</label>
+      <label class="lbl">⏱ Temps de jeu équitable</label>
       <div style="background:#071e07;border:1px solid #2ecc7166;border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;">
-        <div style="font-size:16px;font-weight:700;color:#2ecc71">⚽ ${fmtMinutesLabel(exactMin)} par joueur de champ</div>
-        <div style="font-size:10px;color:#7986cb;margin-top:4px">7 rotations · 4 apparitions chacun · ${totalChanges} changements</div>
-        <div style="font-size:10px;color:#555;margin-top:2px">Aucun joueur de champ n'est en dessous ou au-dessus : tout le monde joue exactement 4 fois.</div>
+        <div style="font-size:16px;font-weight:700;color:#2ecc71">⚽ minimum ${fmtMinutesLabel(exactMin)} pour tous</div>
+        <div style="font-size:10px;color:#7986cb;margin-top:4px">4 rotations · ${totalChanges} changements · répartition 2 ou 3 passages</div>
+        <div style="font-size:10px;color:#555;margin-top:2px">Objectif : personne à 1 rotation ou 4 rotations. 5 joueurs joueront ${fmtMinutesLabel(exactMin)} et 2 joueurs joueront ${fmtMinutesLabel(exactMax)}.</div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;">`;
 
@@ -409,15 +414,17 @@ function renderMatch() {
     field.forEach(name => {
       const isCore = CORE.has(name);
       const mins = minutesMap[name];
-      const border = isCore ? '#9333ea55' : '#2ecc7155';
-      const text = isCore ? '#c084fc' : '#2ecc71';
+      const rots = Math.round(mins / sliceDur);
+      const isHigh = rots === maxRots;
+      const border = isHigh ? '#f39c1255' : (isCore ? '#9333ea55' : '#2ecc7155');
+      const text = isHigh ? '#f39c12' : (isCore ? '#c084fc' : '#2ecc71');
       h += `<span style="background:#0d1226;padding:5px 10px;border-radius:14px;font-size:11px;border:1px solid ${border}">
         <strong style="color:${text}">${fmtMinutesLabel(mins)}</strong>
         <span style="color:#9fa8da">${name}${isCore?' ⭐':''}</span></span>`;
     });
 
     h += `</div>
-      <div style="margin-top:8px;font-size:10px;color:#7986cb">Priorités intégrées : 1) 4 rotations chacun 2) poste préféré 3) noyau dur dans les solutions équivalentes</div>
+      <div style="margin-top:8px;font-size:10px;color:#7986cb">Priorités intégrées : 1) minimum 2 rotations pour tous 2) max 3 rotations 3) poste préféré 4) noyau dur dans les solutions équivalentes</div>
     </div>`;
 
     h += `<div class="card"><label class="lbl">🔄 ${slices.length} rotations · ${fmtMinutesLabel(sliceDur)} chacune</label>`;
@@ -630,7 +637,8 @@ function renderRoster() {
   h += `<div class="card"><label class="lbl">📊 Règle de match utilisée</label>
     <div class="small-note">
       Le générateur est volontairement strict : <strong>Jorvie fixe</strong> + <strong>7 joueurs de champ</strong>.<br>
-      Il construit <strong>7 rotations</strong> et impose <strong>4 présences par joueur</strong>.<br>
+      Il construit <strong>4 rotations</strong> de <strong>${fmtMinutesLabel(50 / TOTAL_ROTATIONS)}</strong>.<br>
+      Il impose une répartition <strong>équitable</strong> : tout le monde joue <strong>2 ou 3 rotations</strong>, donc entre <strong>${fmtMinutesLabel(2*(50 / TOTAL_ROTATIONS))}</strong> et <strong>${fmtMinutesLabel(3*(50 / TOTAL_ROTATIONS))}</strong>.<br>
       Ensuite il maximise le <strong>poste préféré</strong>, puis seulement après le <strong>noyau dur</strong>.<br>
       Pour <strong>Raf</strong>, l'ordre est : <code class="inline">N7</code> → <code class="inline">N11</code> → <code class="inline">DC</code> → <code class="inline">N9</code>.
     </div>
@@ -658,7 +666,7 @@ function renderRoster() {
 
   h += `<div class="green-note">
     ⭐ <strong>Noyau dur</strong> : Tessio · Raf · Dario · Sandro · Mathias<br>
-    ✅ <strong>Priorité réelle du moteur</strong> : égalité parfaite d'abord, poste préféré ensuite, noyau dur seulement pour départager les solutions équivalentes.<br>
+    ✅ <strong>Priorité réelle du moteur</strong> : équité d'abord, donc minimum 2 rotations pour tous et maximum 3 rotations, puis poste préféré, puis noyau dur.<br>
     ⚡ <strong>Raf</strong> est priorisé en <strong>7 / 11</strong>, puis <strong>3</strong> ou <strong>9</strong> seulement si nécessaire.
   </div>`;
 
