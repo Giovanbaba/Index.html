@@ -342,7 +342,7 @@ function renderMatch() {
   h += `<button class="btn-main" onclick="generate()">⚡ Générer les rotations</button>`;
 
   if (S.plan) {
-    const {slices, minutesMap, field, exactMin, sliceDur, totalChanges} = S.plan;
+    const {slices, minutesMap, field, exactMin, sliceDur, totalChanges, allEqual, minRots, maxRots} = S.plan;
     const N = field.length;
 
     h += `<div class="card">
