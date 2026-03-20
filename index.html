@@ -147,57 +147,101 @@ function buildPlan(field) {
       return { error:`Aucun joueur pour le poste ${POS[pos].label} (${POS[pos].num}).` };
   }
 
-  const exactMin  = 200 / N;
-  const sliceDur  = 50 / N;
-  const quota     = 4;
-  const slices    = [];
-  const playCount = {};
-  field.forEach(n => playCount[n] = 0);
+  const exactMin = 200 / N;
+  const sliceDur = 50 / N;
+  const quota    = 4;
 
-  for (let si = 0; si < N; si++) {
-    const rotLeft   = N - si;
-    const available = field.filter(n => playCount[n] < quota);
-    // Trier : priorité aux joueurs qui ont le moins joué
-    available.sort((a,b) => playCount[a] - playCount[b]);
-
-    let chosen = null;
-
-    // Essayer toutes les combos, scorer par équité stricte
-    // Score = -maxPlay*1000 - sumPlay  (minimiser le max, puis la somme)
-    // + pénalité si un joueur laissé ne peut plus atteindre son quota
-    let bestScore = -Infinity;
-    for (const combo of combosLocal(available, 4)) {
-      const ass = assignPos(combo);
-      if (!ass) continue;
-
-      const comboSet = new Set(combo);
-
-      // Pénalité urgence : si un joueur laissé ne peut PAS atteindre quota
-      let urgent = 0;
-      for (const n of available) {
-        if (comboSet.has(n)) continue;
-        const needed = quota - playCount[n];
-        const after  = rotLeft - 1;
-        if (needed > after) urgent += (needed - after) * 100000; // bloquant
-      }
-
-      // Score équité : favoriser les combos avec joueurs les moins utilisés
-      const maxPlay = Math.max(...combo.map(n => playCount[n]));
-      const sumPlay = combo.reduce((s,n) => s + playCount[n], 0);
-      // Bonus noyau léger (ne doit PAS compromettre l'équité)
-      const coreBonus = combo.filter(n => CORE.has(n)).length * 2;
-
-      const score = -urgent - maxPlay * 1000 - sumPlay * 10 + coreBonus;
-      if (score > bestScore) { bestScore = score; chosen = { team: combo, ass }; }
-    }
-
-    if (!chosen) return { error:"Impossible de former une équipe valide." };
-
-    chosen.team.forEach(n => playCount[n]++);
-    slices.push({ dur:sliceDur, team:chosen.team, ass:chosen.ass });
+  // ── Précalculer toutes les équipes de 4 valides ──
+  const validTeams = [];
+  for (const combo of combosLocal(field, 4)) {
+    const ass = assignPos(combo);
+    if (ass) validTeams.push({ team: combo, ass });
   }
 
-  // Calcul des VRAIES minutes jouées (pas le temps idéal)
+  // ── BACKTRACKING : trouver un plan où chaque joueur joue exactement 4 rotations ──
+  // On cherche le plan avec le max de membres du noyau par rotation (secondaire).
+  let bestPlan = null;
+  let bestCoreTotal = -1;
+
+  function bt(si, counts, plan) {
+    if (si === N) {
+      if (field.every(n => counts[n] === quota)) {
+        const coreTotal = plan.reduce((s,sl) => s + sl.team.filter(n => CORE.has(n)).length, 0);
+        if (coreTotal > bestCoreTotal) {
+          bestCoreTotal = coreTotal;
+          bestPlan = plan.map(sl => ({...sl}));
+        }
+      }
+      return;
+    }
+
+    const rotLeft = N - si;
+
+    // Trier les équipes valides : d'abord celles avec les joueurs les moins utilisés
+    // + bonus noyau, pour guider vers de bonnes solutions rapidement
+    const sorted = validTeams
+      .filter(({team}) => team.every(n => counts[n] < quota))
+      .filter(({team}) => {
+        // Vérifier faisabilité future : les joueurs non sélectionnés peuvent encore atteindre quota
+        const after = rotLeft - 1;
+        return field.every(n => {
+          if (team.includes(n)) return true;
+          return (quota - counts[n]) <= after;
+        });
+      })
+      .sort((a, b) => {
+        const sumA = a.team.reduce((s,n) => s + counts[n], 0);
+        const sumB = b.team.reduce((s,n) => s + counts[n], 0);
+        const coreA = a.team.filter(n => CORE.has(n)).length;
+        const coreB = b.team.filter(n => CORE.has(n)).length;
+        return (sumA - coreA * 0.5) - (sumB - coreB * 0.5);
+      });
+
+    for (const {team, ass} of sorted) {
+      const nc = {...counts};
+      team.forEach(n => nc[n]++);
+      bt(si + 1, nc, [...plan, {team, ass}]);
+      // Pruning : si on a déjà trouvé une solution parfaite, s'arrêter tôt
+      if (bestPlan && bestCoreTotal >= N * 3) return;
+    }
+  }
+
+  const initCounts = {};
+  field.forEach(n => initCounts[n] = 0);
+  bt(0, initCounts, []);
+
+  // ── Si backtracking échoue (rare), fallback greedy ──
+  if (!bestPlan) {
+    const slices = [];
+    const playCount = {};
+    field.forEach(n => playCount[n] = 0);
+    for (let si = 0; si < N; si++) {
+      const avail = [...field].sort((a,b) => playCount[a]-playCount[b]);
+      let chosen = null;
+      for (const combo of combosLocal(avail, 4)) {
+        const ass = assignPos(combo);
+        if (ass) { chosen = {team:combo, ass}; break; }
+      }
+      if (!chosen) return { error:"Impossible de former une équipe valide avec ces joueurs." };
+      chosen.team.forEach(n => playCount[n]++);
+      slices.push({ dur:sliceDur, team:chosen.team, ass:chosen.ass });
+    }
+    const minutesMap = { Jorvie:50 };
+    const minR = Math.min(...field.map(n=>playCount[n]));
+    const maxR = Math.max(...field.map(n=>playCount[n]));
+    field.forEach(n => minutesMap[n] = playCount[n] * sliceDur);
+    let tc=0; for(let i=1;i<slices.length;i++){const p=new Set(slices[i-1].team);slices[i].team.forEach(n=>{if(!p.has(n))tc++;});}
+    return { slices, minutesMap, field, exactMin, sliceDur:Math.round(sliceDur*100)/100, totalChanges:tc, allEqual:minR===maxR, minRots:minR, maxRots:maxR };
+  }
+
+  // ── Construire le résultat final ──
+  const playCount = {};
+  field.forEach(n => playCount[n] = 0);
+  const slices = bestPlan.map(sl => {
+    sl.team.forEach(n => playCount[n]++);
+    return { dur:sliceDur, team:sl.team, ass:sl.ass };
+  });
+
   const minutesMap = { Jorvie:50 };
   field.forEach(n => minutesMap[n] = playCount[n] * sliceDur);
   const allEqual = field.every(n => playCount[n] === quota);
