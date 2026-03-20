@@ -155,7 +155,8 @@ function buildPlan(field) {
   field.forEach(n => playCount[n] = 0);
 
   for (let si = 0; si < N; si++) {
-    const rotLeft  = N - si;          // rotations restantes (incluse)
+    const rotLeft   = N - si;
+    // Ne dépasser le quota que si strictement nécessaire
     const available = field.filter(n => playCount[n] < quota);
 
     let bestScore = -Infinity;
@@ -165,37 +166,36 @@ function buildPlan(field) {
       const ass = assignPos(combo);
       if (!ass) continue;
 
-      // ── Calcul du score ──
       const comboSet = new Set(combo);
+      const newCount = {};
+      field.forEach(n => newCount[n] = playCount[n] + (comboSet.has(n) ? 1 : 0));
 
-      // 1. Bonus noyau : chaque membre du noyau dans la combo = +10
-      const coreBonus = combo.filter(n => CORE.has(n)).length * 10;
+      // ── Priorité absolue : minimiser l'écart max-min après ce choix ──
+      const vals = field.map(n => newCount[n]);
+      const maxV = Math.max(...vals), minV = Math.min(...vals);
+      const gap  = maxV - minV;
 
-      // 2. Pénalité équité : favoriser ceux qui ont moins joué
-      const avgPlayed = combo.reduce((s,n) => s + playCount[n], 0) / 4;
-      const equityPenalty = avgPlayed * 3;
-
-      // 3. Pénalité urgence : si un joueur laissé de côté NE PEUT PLUS
-      //    atteindre son quota dans les rotations restantes → pénalité massive
-      //    stillNeeded rotations pour n, mais il reste seulement (rotLeft-1) après cette rotation
-      let urgencyPenalty = 0;
+      // ── Pénalité urgence : joueur laissé qui ne pourra plus rattraper ──
+      let urgency = 0;
       for (const n of available) {
         if (comboSet.has(n)) continue;
-        const stillNeeded = quota - playCount[n];
-        const rotAfter    = rotLeft - 1;
-        if (stillNeeded > rotAfter) {
-          // Impossible pour ce joueur d'atteindre son quota si on ne le prend pas !
-          urgencyPenalty += (stillNeeded - rotAfter) * 100;
-        }
+        const needed = quota - newCount[n];
+        const after  = rotLeft - 1;
+        if (needed > 0 && needed > after) urgency += (needed - after) * 10000;
+        else if (needed > 0 && after > 0 && needed / after >= 1.0) urgency += 500;
       }
 
-      const score = coreBonus - equityPenalty - urgencyPenalty;
+      // ── Bonus noyau (secondaire, seulement si équité OK) ──
+      const coreBonus = combo.filter(n => CORE.has(n)).length * 5;
+
+      const score = -gap * 1000 - urgency + coreBonus;
       if (score > bestScore) { bestScore = score; chosen = { team: combo, ass }; }
     }
 
-    // Fallback (ne devrait jamais arriver)
+    // Fallback
     if (!chosen) {
-      for (const combo of combosLocal(field, 4)) {
+      const srt = [...field].sort((a,b) => playCount[a]-playCount[b]);
+      for (const combo of combosLocal(srt, 4)) {
         const ass = assignPos(combo);
         if (ass) { chosen = { team: combo, ass }; break; }
       }
@@ -206,10 +206,12 @@ function buildPlan(field) {
     slices.push({ dur:sliceDur, team:chosen.team, ass:chosen.ass });
   }
 
-  // Vérification finale
-  const allEqual = field.every(n => playCount[n] === quota);
+  // Calcul des VRAIES minutes jouées (pas le temps idéal)
   const minutesMap = { Jorvie:50 };
-  field.forEach(n => minutesMap[n] = exactMin);
+  field.forEach(n => minutesMap[n] = playCount[n] * sliceDur);
+  const allEqual = field.every(n => playCount[n] === quota);
+  const minRots  = Math.min(...field.map(n => playCount[n]));
+  const maxRots  = Math.max(...field.map(n => playCount[n]));
 
   let totalChanges = 0;
   for (let i=1; i<slices.length; i++) {
@@ -217,7 +219,7 @@ function buildPlan(field) {
     slices[i].team.forEach(n => { if (!prev.has(n)) totalChanges++; });
   }
 
-  return { slices, minutesMap, field, exactMin, sliceDur:Math.round(sliceDur*100)/100, totalChanges, allEqual };
+  return { slices, minutesMap, field, exactMin, sliceDur:Math.round(sliceDur*100)/100, totalChanges, allEqual, minRots, maxRots };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -346,17 +348,26 @@ function renderMatch() {
     h += `<div class="card">
       <label class="lbl">⏱ Temps de jeu · ${N} joueurs de champ</label>
       <div style="background:#071e07;border:1px solid #2ecc7166;border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;">
-        <div style="font-size:16px;font-weight:700;color:#2ecc71">⚽ ${fmtMinutesLabel(exactMin)} par joueur de champ</div>
-        <div style="font-size:10px;color:#7986cb;margin-top:4px">Temps strictement égal pour tous · ${totalChanges} changements</div>
-        <div style="font-size:10px;color:#555;margin-top:2px">4 postes × 50 min ÷ ${N} joueurs = ${fmtMinutesLabel(exactMin)}</div>
+        ${allEqual
+          ? `<div style="font-size:16px;font-weight:700;color:#2ecc71">⚽ ${fmtMinutesLabel(exactMin)} par joueur de champ</div>
+             <div style="font-size:10px;color:#7986cb;margin-top:4px">Temps strictement égal pour tous · ${totalChanges} changements</div>`
+          : `<div style="font-size:15px;font-weight:700;color:#f39c12">⚽ ${fmtMinutesLabel(minRots*sliceDur)} – ${fmtMinutesLabel(maxRots*sliceDur)} par joueur</div>
+             <div style="font-size:10px;color:#f39c12;margin-top:4px">⚠️ Équité parfaite impossible avec ces postes — écart minimal garanti</div>`
+        }
+        <div style="font-size:10px;color:#555;margin-top:2px">4 postes × 50 min ÷ ${N} joueurs · ${totalChanges} changements</div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;">`;
     h += `<span style="background:#0d1226;padding:5px 10px;border-radius:14px;font-size:11px;border:1px solid #f39c1255">
       <strong style="color:#f39c12">50 min</strong> <span style="color:#9fa8da">🧤 Jorvie</span></span>`;
     field.forEach(name => {
       const isCore = CORE.has(name);
-      h += `<span style="background:#0d1226;padding:5px 10px;border-radius:14px;font-size:11px;border:1px solid ${isCore?'#9333ea55':'#2ecc7155'}">
-        <strong style="color:${isCore?'#c084fc':'#2ecc71'}">${fmtMinutesLabel(minutesMap[name])}</strong>
+      const mins   = minutesMap[name];
+      const isMax  = Math.abs(mins - maxRots*sliceDur) < 0.1;
+      const isMin  = Math.abs(mins - minRots*sliceDur) < 0.1;
+      const tCol   = allEqual ? (isCore?'#c084fc':'#2ecc71') : (isMax?'#2ecc71':isMin?'#f39c12':'#7eb6ff');
+      const bCol   = allEqual ? (isCore?'#9333ea55':'#2ecc7155') : (isMax?'#2ecc7155':isMin?'#f39c1255':'#7eb6ff55');
+      h += `<span style="background:#0d1226;padding:5px 10px;border-radius:14px;font-size:11px;border:1px solid ${bCol}">
+        <strong style="color:${tCol}">${fmtMinutesLabel(mins)}</strong>
         <span style="color:#9fa8da">${name}${isCore?' ⭐':''}</span></span>`;
     });
     h += `</div>
