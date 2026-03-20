@@ -57,8 +57,8 @@ const PLAYERS = [
   { name:"Simon",   pos:["DC"] },
   { name:"Sandro",  pos:["N7","N11"] },
   { name:"Dario",   pos:["N7","N11"] },
-  { name:"Thymao",  pos:["N7","N11"] },
-  { name:"Noam",    pos:["N7","N11"] },
+  { name:"Thymao",  pos:["N7","N11","N9"] },
+  { name:"Noam",    pos:["N7","N11","N9"] },
   { name:"Mathias", pos:["N7","N11","N9"] },
   { name:"Isaac",   pos:["N9"] },
 ];
@@ -156,50 +156,41 @@ function buildPlan(field) {
 
   for (let si = 0; si < N; si++) {
     const rotLeft   = N - si;
-    // Ne dépasser le quota que si strictement nécessaire
     const available = field.filter(n => playCount[n] < quota);
+    // Trier : priorité aux joueurs qui ont le moins joué
+    available.sort((a,b) => playCount[a] - playCount[b]);
 
+    let chosen = null;
+
+    // Essayer toutes les combos, scorer par équité stricte
+    // Score = -maxPlay*1000 - sumPlay  (minimiser le max, puis la somme)
+    // + pénalité si un joueur laissé ne peut plus atteindre son quota
     let bestScore = -Infinity;
-    let chosen    = null;
-
     for (const combo of combosLocal(available, 4)) {
       const ass = assignPos(combo);
       if (!ass) continue;
 
       const comboSet = new Set(combo);
-      const newCount = {};
-      field.forEach(n => newCount[n] = playCount[n] + (comboSet.has(n) ? 1 : 0));
 
-      // ── Priorité absolue : minimiser l'écart max-min après ce choix ──
-      const vals = field.map(n => newCount[n]);
-      const maxV = Math.max(...vals), minV = Math.min(...vals);
-      const gap  = maxV - minV;
-
-      // ── Pénalité urgence : joueur laissé qui ne pourra plus rattraper ──
-      let urgency = 0;
+      // Pénalité urgence : si un joueur laissé ne peut PAS atteindre quota
+      let urgent = 0;
       for (const n of available) {
         if (comboSet.has(n)) continue;
-        const needed = quota - newCount[n];
+        const needed = quota - playCount[n];
         const after  = rotLeft - 1;
-        if (needed > 0 && needed > after) urgency += (needed - after) * 10000;
-        else if (needed > 0 && after > 0 && needed / after >= 1.0) urgency += 500;
+        if (needed > after) urgent += (needed - after) * 100000; // bloquant
       }
 
-      // ── Bonus noyau (secondaire, seulement si équité OK) ──
-      const coreBonus = combo.filter(n => CORE.has(n)).length * 5;
+      // Score équité : favoriser les combos avec joueurs les moins utilisés
+      const maxPlay = Math.max(...combo.map(n => playCount[n]));
+      const sumPlay = combo.reduce((s,n) => s + playCount[n], 0);
+      // Bonus noyau léger (ne doit PAS compromettre l'équité)
+      const coreBonus = combo.filter(n => CORE.has(n)).length * 2;
 
-      const score = -gap * 1000 - urgency + coreBonus;
+      const score = -urgent - maxPlay * 1000 - sumPlay * 10 + coreBonus;
       if (score > bestScore) { bestScore = score; chosen = { team: combo, ass }; }
     }
 
-    // Fallback
-    if (!chosen) {
-      const srt = [...field].sort((a,b) => playCount[a]-playCount[b]);
-      for (const combo of combosLocal(srt, 4)) {
-        const ass = assignPos(combo);
-        if (ass) { chosen = { team: combo, ass }; break; }
-      }
-    }
     if (!chosen) return { error:"Impossible de former une équipe valide." };
 
     chosen.team.forEach(n => playCount[n]++);
@@ -610,8 +601,9 @@ function renderRoster() {
   });
   h += `<div class="green-note">
     ⭐ <strong>Noyau dur</strong> : Tessio · Raf · Dario · Sandro · Mathias — jouent ensemble en priorité<br>
-    ✦ <strong>Raf</strong> : DC · Ailier G · Ailier D · Attaquant<br>
-    ✦ <strong>Mathias</strong> : Ailier G · Ailier D · Attaquant
+    ✦ <strong>Raf</strong> : DC (n°3) · Ailier G (n°7) · Ailier D (n°11) · Attaquant (n°9)<br>
+    ✦ <strong>Mathias</strong> : Ailier G (n°7) · Ailier D (n°11) · Attaquant (n°9)<br>
+    ✦ <strong>Thymao · Noam</strong> : Ailier G (n°7) · Ailier D (n°11) · Attaquant (n°9)
   </div>`;
   document.getElementById("tab-roster").innerHTML = h;
 }
