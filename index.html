@@ -172,59 +172,76 @@ function buildPlan(field) {
     return { error:"Impossible de former une équipe valide avec ces 7 joueurs de champ." };
   }
 
-  let bestPlan = null;
-  let bestScore = -Infinity;
+  // Priorité :
+  // 1) tout le monde à 4 rotations exactes
+  // 2) meilleur score de postes
+  // 3) noyau dur en bonus secondaire
+  // Utilise une mémoïsation par état pour éviter de geler le navigateur.
+  const idx = Object.fromEntries(field.map((n, i) => [n, i]));
+  const memo = new Map();
 
-  function bt(rotationIndex, counts, plan, totalScore) {
+  function encodeCounts(counts) {
+    return counts.join('|');
+  }
+
+  function solve(counts, rotationIndex) {
+    const key = rotationIndex + '::' + encodeCounts(counts);
+    if (memo.has(key)) return memo.get(key);
+
     if (rotationIndex === TOTAL_ROTATIONS) {
-      if (field.every(n => counts[n] === quota)) {
-        if (totalScore > bestScore) {
-          bestScore = totalScore;
-          bestPlan = plan.map(sl => ({ ...sl }));
-        }
-      }
-      return;
+      const ok = counts.every(c => c === quota);
+      const res = ok ? { score: 0, plan: [] } : null;
+      memo.set(key, res);
+      return res;
     }
 
     const remainingAfterThis = TOTAL_ROTATIONS - rotationIndex - 1;
+    let best = null;
 
     const candidates = validTeams.filter(({ team }) => {
-      const nextCounts = { ...counts };
+      const next = counts.slice();
       for (const n of team) {
-        if (nextCounts[n] >= quota) return false;
-        nextCounts[n]++;
+        const i = idx[n];
+        if (next[i] >= quota) return false;
+        next[i]++;
       }
-      return field.every(n => (quota - nextCounts[n]) <= remainingAfterThis);
-    });
-
-    candidates.sort((a, b) => {
+      for (let i = 0; i < next.length; i++) {
+        if ((quota - next[i]) > remainingAfterThis) return false;
+      }
+      return true;
+    }).sort((a, b) => {
       if (b.posScore !== a.posScore) return b.posScore - a.posScore;
       if (b.coreCount !== a.coreCount) return b.coreCount - a.coreCount;
       return 0;
     });
 
     for (const cand of candidates) {
-      const nextCounts = { ...counts };
-      cand.team.forEach(n => nextCounts[n]++);
+      const next = counts.slice();
+      cand.team.forEach(n => next[idx[n]]++);
 
-      const addedScore = (cand.posScore * 100) + (cand.coreCount * 10);
-      bt(
-        rotationIndex + 1,
-        nextCounts,
-        [...plan, { dur: sliceDur, team: cand.team, ass: cand.ass, posScore: cand.posScore, coreCount: cand.coreCount }],
-        totalScore + addedScore
-      );
+      const tail = solve(next, rotationIndex + 1);
+      if (!tail) continue;
+
+      const score = (cand.posScore * 100) + (cand.coreCount * 10) + tail.score;
+      if (!best || score > best.score) {
+        best = {
+          score,
+          plan: [{ dur: sliceDur, team: cand.team, ass: cand.ass, posScore: cand.posScore, coreCount: cand.coreCount }, ...tail.plan]
+        };
+      }
     }
+
+    memo.set(key, best);
+    return best;
   }
 
-  const initCounts = {};
-  field.forEach(n => initCounts[n] = 0);
-  bt(0, initCounts, [], 0);
+  const solved = solve(new Array(N).fill(0), 0);
 
-  if (!bestPlan) {
+  if (!solved || !solved.plan) {
     return { error:"Aucun plan exact trouvé : chacun doit jouer 4 rotations sur 7." };
   }
 
+  const bestPlan = solved.plan;
   const playCount = {};
   field.forEach(n => playCount[n] = 0);
   bestPlan.forEach(sl => sl.team.forEach(n => playCount[n]++));
