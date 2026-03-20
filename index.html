@@ -54,7 +54,7 @@ const PLAYERS = [
   { name:"Tessio",  pos:["DC"] },
   { name:"Raf",     pos:["DC","N7","N11","N9"] },
   { name:"Ricardo", pos:["DC"] },
-  { name:"Simon",   pos:["DC","N7","N11"] },
+  { name:"Simon",   pos:["DC"] },
   { name:"Sandro",  pos:["N7","N11"] },
   { name:"Dario",   pos:["N7","N11"] },
   { name:"Thymao",  pos:["N7","N11"] },
@@ -76,6 +76,7 @@ const ROT_COLORS = [
   "#ff9800","#00bcd4","#e91e63","#8bc34a",
   "#ff5722","#607d8b","#795548","#009688"
 ];
+const CORE = new Set(["Tessio","Raf","Dario","Sandro","Mathias"]);
 
 function gP(n)     { return PLAYERS.find(p => p.name === n); }
 function can(n, p) { return gP(n).pos.includes(p); }
@@ -92,17 +93,26 @@ const S = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// ALGORITHME — TEMPS ÉGAL + CONTINUITÉ MAXIMALE
+// ALGORITHME
 //
-// Règle : 4 postes × 50min ÷ N joueurs de champ = temps exact par joueur
-// Chaque joueur joue exactement 4 rotations sur N rotations totales.
+// RÈGLE ABSOLUE N°1 : temps de jeu STRICTEMENT ÉGAL pour tous.
+//   Chaque joueur joue exactement 4 rotations sur N.
+//   Temps = 4 × (50/N) = 200/N minutes.
 //
-// NOUVEAUTÉ — MINIMISER LES CHANGEMENTS :
-//   On essaie de garder le maximum de joueurs d'une rotation à l'autre.
-//   Stratégie : pour chaque nouvelle rotation, on essaie d'abord de garder
-//   le maximum de joueurs de la rotation précédente (qui ont encore du quota),
-//   en ne remplaçant que ceux qui ont épuisé leur quota.
-//   → Moins de changements = plus de continuité sur le terrain.
+// RÈGLE N°2 : dans le respect de N°1, favoriser le noyau dur
+//   (Tessio, Raf, Dario, Sandro, Mathias) ensemble.
+//
+// MÉTHODE :
+//   Pour chaque rotation, on score toutes les combinaisons valides de 4 joueurs.
+//   Score d'une combo = (membres du noyau présents × 10)
+//                     - (moyenne des rotations déjà jouées × 3)  ← équité
+//                     - (urgence des joueurs laissés de côté × 100) ← garantit quota
+//
+//   L'urgence est déclenchée quand un joueur laissé de côté
+//   ne peut mathématiquement plus atteindre son quota si on ne le prend pas.
+//
+// GARANTIE : l'urgence (×100) écrase toujours le bonus noyau (×10).
+//   → Le quota est toujours respecté, le noyau est favorisé dans les marges.
 // ═══════════════════════════════════════════════════════════════
 
 function assignPos(team) {
@@ -125,121 +135,89 @@ function assignPos(team) {
 function* combosLocal(arr, k) {
   if (k===0){yield[];return;}
   for(let i=0;i<=arr.length-k;i++)
-    for(const rest of combosLocal(arr.slice(i+1),k-1)) yield[arr[i],...rest];
+    for(const rest of combosLocal(arr.slice(i+1),k-1))
+      yield[arr[i],...rest];
 }
 
 function buildPlan(field) {
   const N = field.length;
+
   for (const pos of ["DC","N7","N11","N9"]) {
     if (!field.some(n => can(n, pos)))
-      return { error:`Aucun joueur disponible pour le poste ${POS[pos].label} (${POS[pos].num}).` };
+      return { error:`Aucun joueur pour le poste ${POS[pos].label} (${POS[pos].num}).` };
   }
 
-  const exactMin = 200 / N;
-  const sliceDur = 50 / N;
-  const quota    = 4; // chaque joueur joue exactement 4 rotations
-  const slices   = [];
+  const exactMin  = 200 / N;
+  const sliceDur  = 50 / N;
+  const quota     = 4;
+  const slices    = [];
   const playCount = {};
   field.forEach(n => playCount[n] = 0);
 
-  // Noyau dur : ces joueurs doivent jouer ensemble autant que possible
-  const CORE = ["Tessio","Raf","Dario","Sandro","Mathias"];
-
   for (let si = 0; si < N; si++) {
+    const rotLeft  = N - si;          // rotations restantes (incluse)
     const available = field.filter(n => playCount[n] < quota);
-    available.sort((a,b) => playCount[a] - playCount[b]);
 
-    let chosen = null;
+    let bestScore = -Infinity;
+    let chosen    = null;
 
-    // ── PRIORITÉ 1 : NOYAU DUR ──
-    // Essayer de former une équipe de 4 avec le maximum de joueurs du noyau dur
-    // parmi ceux disponibles, en commençant par 4, puis 3 du noyau + 1 autre
-    const coreAvail = available.filter(n => CORE.includes(n));
-    if (coreAvail.length >= 4) {
-      // Essayer toutes les combos de 4 parmi le noyau disponible
-      // Priorité aux combos qui maximisent la continuité avec la rotation précédente
-      const prevTeam = si > 0 ? slices[si-1].team : [];
-      const coreAvailSorted = [...coreAvail].sort((a,b) => {
-        const aInPrev = prevTeam.includes(a) ? -1 : 0;
-        const bInPrev = prevTeam.includes(b) ? -1 : 0;
-        return aInPrev - bInPrev + (playCount[a] - playCount[b]);
-      });
-      for (const combo of combosLocal(coreAvailSorted, 4)) {
-        const ass = assignPos(combo);
-        if (ass) { chosen = { team: combo, ass }; break; }
-      }
-    }
-    if (!chosen && coreAvail.length === 3) {
-      // 3 du noyau + 1 autre disponible
-      const others = available.filter(n => !CORE.includes(n));
-      for (const fill of others) {
-        const team4 = [...coreAvail, fill];
-        const ass = assignPos(team4);
-        if (ass) { chosen = { team: team4, ass }; break; }
-      }
-    }
-    if (!chosen && coreAvail.length === 2) {
-      // 2 du noyau + 2 autres
-      const others = available.filter(n => !CORE.includes(n));
-      for (const fillCombo of combosLocal(others, 2)) {
-        const team4 = [...coreAvail, ...fillCombo];
-        const ass = assignPos(team4);
-        if (ass) { chosen = { team: team4, ass }; break; }
-      }
-    }
+    for (const combo of combosLocal(available, 4)) {
+      const ass = assignPos(combo);
+      if (!ass) continue;
 
-    // ── PRIORITÉ 2 : CONTINUITÉ (si noyau dur pas possible) ──
-    if (!chosen && si > 0) {
-      const prevTeam = slices[si-1].team;
-      const keepable = prevTeam.filter(n => playCount[n] < quota);
-      for (let keep = Math.min(keepable.length, 3); keep >= 1 && !chosen; keep--) {
-        for (const keptCombo of combosLocal(keepable, keep)) {
-          const rest = available.filter(n => !keptCombo.includes(n));
-          const need = 4 - keep;
-          for (const fillCombo of combosLocal(rest, need)) {
-            const team4 = [...keptCombo, ...fillCombo];
-            const ass = assignPos(team4);
-            if (ass) { chosen = { team: team4, ass }; break; }
-          }
-          if (chosen) break;
+      // ── Calcul du score ──
+      const comboSet = new Set(combo);
+
+      // 1. Bonus noyau : chaque membre du noyau dans la combo = +10
+      const coreBonus = combo.filter(n => CORE.has(n)).length * 10;
+
+      // 2. Pénalité équité : favoriser ceux qui ont moins joué
+      const avgPlayed = combo.reduce((s,n) => s + playCount[n], 0) / 4;
+      const equityPenalty = avgPlayed * 3;
+
+      // 3. Pénalité urgence : si un joueur laissé de côté NE PEUT PLUS
+      //    atteindre son quota dans les rotations restantes → pénalité massive
+      //    stillNeeded rotations pour n, mais il reste seulement (rotLeft-1) après cette rotation
+      let urgencyPenalty = 0;
+      for (const n of available) {
+        if (comboSet.has(n)) continue;
+        const stillNeeded = quota - playCount[n];
+        const rotAfter    = rotLeft - 1;
+        if (stillNeeded > rotAfter) {
+          // Impossible pour ce joueur d'atteindre son quota si on ne le prend pas !
+          urgencyPenalty += (stillNeeded - rotAfter) * 100;
         }
       }
+
+      const score = coreBonus - equityPenalty - urgencyPenalty;
+      if (score > bestScore) { bestScore = score; chosen = { team: combo, ass }; }
     }
 
-    // ── FALLBACK : meilleure équipe disponible ──
+    // Fallback (ne devrait jamais arriver)
     if (!chosen) {
-      for (const combo of combosLocal(available, 4)) {
+      for (const combo of combosLocal(field, 4)) {
         const ass = assignPos(combo);
         if (ass) { chosen = { team: combo, ass }; break; }
       }
     }
-
-    // ── DERNIER RECOURS : ouvrir à tous ──
-    if (!chosen) {
-      const all = [...field].sort((a,b) => playCount[a] - playCount[b]);
-      for (const combo of combosLocal(all, 4)) {
-        const ass = assignPos(combo);
-        if (ass) { chosen = { team: combo, ass }; break; }
-      }
-    }
-
-    if (!chosen) return { error:"Impossible de former une équipe valide pour une rotation." };
+    if (!chosen) return { error:"Impossible de former une équipe valide." };
 
     chosen.team.forEach(n => playCount[n]++);
     slices.push({ dur:sliceDur, team:chosen.team, ass:chosen.ass });
   }
 
-  // Calculer le nombre de changements total (pour info)
+  // Vérification finale
+  const allEqual = field.every(n => playCount[n] === quota);
+  const minutesMap = { Jorvie:50 };
+  field.forEach(n => minutesMap[n] = exactMin);
+
   let totalChanges = 0;
   for (let i=1; i<slices.length; i++) {
     const prev = new Set(slices[i-1].team);
     slices[i].team.forEach(n => { if (!prev.has(n)) totalChanges++; });
   }
 
-  const minutesMap = { Jorvie:50 };
-  field.forEach(n => minutesMap[n] = exactMin);
-
-  return { slices, minutesMap, field, exactMin, sliceDur:Math.round(sliceDur*100)/100, totalChanges };
+  return { slices, minutesMap, field, exactMin, sliceDur:Math.round(sliceDur*100)/100, totalChanges, allEqual };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -319,14 +297,13 @@ function showTab(tab) {
 }
 
 function fmtTime(min) {
-  const totalSec = Math.round(min*60);
-  const m = Math.floor(totalSec/60), s = totalSec%60;
-  return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  const s = Math.round(min*60);
+  return `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 }
 function fmtMinutesLabel(min) {
-  const totalSec = Math.round(min*60);
-  const m = Math.floor(totalSec/60), s = totalSec%60;
-  return s===0 ? `${m} min` : `${m}m${String(s).padStart(2,"0")}`;
+  const s = Math.round(min*60);
+  const m = Math.floor(s/60), sec = s%60;
+  return sec===0 ? `${m} min` : `${m}m${String(sec).padStart(2,"0")}`;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -366,24 +343,26 @@ function renderMatch() {
     const {slices, minutesMap, field, exactMin, sliceDur, totalChanges} = S.plan;
     const N = field.length;
 
-    // Résumé temps de jeu
     h += `<div class="card">
       <label class="lbl">⏱ Temps de jeu · ${N} joueurs de champ</label>
       <div style="background:#071e07;border:1px solid #2ecc7166;border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;">
         <div style="font-size:16px;font-weight:700;color:#2ecc71">⚽ ${fmtMinutesLabel(exactMin)} par joueur de champ</div>
-        <div style="font-size:10px;color:#7986cb;margin-top:4px">Tous jouent exactement le même temps · ${totalChanges} changements au total</div>
+        <div style="font-size:10px;color:#7986cb;margin-top:4px">Temps strictement égal pour tous · ${totalChanges} changements</div>
         <div style="font-size:10px;color:#555;margin-top:2px">4 postes × 50 min ÷ ${N} joueurs = ${fmtMinutesLabel(exactMin)}</div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;">`;
     h += `<span style="background:#0d1226;padding:5px 10px;border-radius:14px;font-size:11px;border:1px solid #f39c1255">
       <strong style="color:#f39c12">50 min</strong> <span style="color:#9fa8da">🧤 Jorvie</span></span>`;
     field.forEach(name => {
-      h += `<span style="background:#0d1226;padding:5px 10px;border-radius:14px;font-size:11px;border:1px solid #2ecc7155">
-        <strong style="color:#2ecc71">${fmtMinutesLabel(minutesMap[name])}</strong> <span style="color:#9fa8da">${name}</span></span>`;
+      const isCore = CORE.has(name);
+      h += `<span style="background:#0d1226;padding:5px 10px;border-radius:14px;font-size:11px;border:1px solid ${isCore?'#9333ea55':'#2ecc7155'}">
+        <strong style="color:${isCore?'#c084fc':'#2ecc71'}">${fmtMinutesLabel(minutesMap[name])}</strong>
+        <span style="color:#9fa8da">${name}${isCore?' ⭐':''}</span></span>`;
     });
-    h += `</div></div>`;
+    h += `</div>
+      <div style="margin-top:8px;font-size:10px;color:#7986cb">⭐ Noyau dur : Tessio · Raf · Dario · Sandro · Mathias</div>
+    </div>`;
 
-    // Rotations avec indicateur de changements
     h += `<div class="card"><label class="lbl">🔄 ${slices.length} rotations · ${fmtMinutesLabel(sliceDur)} chacune</label>`;
     let cumul = 0;
     slices.forEach((sl, i) => {
@@ -392,41 +371,34 @@ function renderMatch() {
       cumul += sl.dur;
       const resting = field.filter(n => !sl.team.includes(n));
 
-      // Calculer qui entre / qui sort par rapport à la rotation précédente
-      let entrants = [], sortants = [];
+      let entrants = [];
       if (i > 0) {
         const prev = new Set(slices[i-1].team);
-        const curr = new Set(sl.team);
         entrants = sl.team.filter(n => !prev.has(n));
-        sortants = slices[i-1].team.filter(n => !curr.has(n));
       }
 
-      // Compter combien du noyau dur jouent cette rotation
-      const CORE_DISPLAY = ["Tessio","Raf","Dario","Sandro","Mathias"];
-      const coreInRot = sl.team.filter(n => CORE_DISPLAY.includes(n));
-      const coreAllThere = coreInRot.length >= 4;
-      const coreBadge = coreAllThere
-        ? `<span style="font-size:9px;background:#2a1040;color:#c084fc;padding:2px 7px;border-radius:6px;border:1px solid #9333ea55">⭐ Noyau dur (${coreInRot.length}/4)</span>`
-        : coreInRot.length === 3
-          ? `<span style="font-size:9px;background:#1a1030;color:#a78bfa;padding:2px 7px;border-radius:6px;border:1px solid #7c3aed44">◆ ${coreInRot.length}/4 noyau</span>`
-          : ``;
+      const coreInRot = sl.team.filter(n => CORE.has(n)).length;
+      const coreBadge = coreInRot >= 4
+        ? `<span style="font-size:9px;background:#2a1040;color:#c084fc;padding:2px 7px;border-radius:6px;border:1px solid #9333ea55">⭐ Noyau ${coreInRot}/4</span>`
+        : coreInRot === 3
+          ? `<span style="font-size:9px;background:#1a1030;color:#a78bfa;padding:2px 7px;border-radius:6px;border:1px solid #7c3aed44">◆ Noyau ${coreInRot}/4</span>`
+          : `<span style="font-size:9px;color:#555">Noyau ${coreInRot}/4</span>`;
 
-      h += `<div style="background:#0a0e1a;border:2px solid ${coreAllThere?'#9333ea':col}55;border-radius:10px;padding:11px;margin-bottom:8px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;">
+      const changeBadge = i===0 ? ``
+        : entrants.length===0
+          ? `<span style="font-size:9px;background:#1a3a1a;color:#2ecc71;padding:2px 7px;border-radius:6px;border:1px solid #2ecc7144">✓ Inchangée</span>`
+          : `<span style="font-size:9px;background:#1a1a3a;color:#7eb6ff;padding:2px 7px;border-radius:6px;border:1px solid #3f7fff44">↔ ${entrants.join(", ")}</span>`;
+
+      h += `<div style="background:#0a0e1a;border:2px solid ${coreInRot>=4?'#9333ea':col}55;border-radius:10px;padding:11px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;flex-wrap:wrap;gap:4px;">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
             <span style="font-size:12px;font-weight:700;color:${col}">Rotation ${i+1}</span>
-            ${coreBadge}
-            ${entrants.length===0&&i>0
-              ? `<span style="font-size:9px;background:#1a3a1a;color:#2ecc71;padding:2px 7px;border-radius:6px;border:1px solid #2ecc7144">✓ Inchangée</span>`
-              : entrants.length>0
-                ? `<span style="font-size:9px;background:#1a1a3a;color:#7eb6ff;padding:2px 7px;border-radius:6px;border:1px solid #3f7fff44">↔ ${entrants.join(", ")}</span>`
-                : ``}
+            ${coreBadge} ${changeBadge}
           </div>
           <span style="font-size:10px;background:${col}22;color:${col};padding:3px 8px;border-radius:8px;font-weight:700">${tStart} → ${tEnd}</span>
         </div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;margin-bottom:${resting.length?7:0}px;">`;
 
-      // GK fixe
       h += `<div style="background:${POS.GK.bg};border:2px solid ${POS.GK.color}66;border-radius:8px;padding:8px 4px;text-align:center;min-width:52px;flex:1">
         <div style="font-size:14px">${POS.GK.emoji}</div>
         <div style="font-size:10px;font-weight:700;color:${POS.GK.color};margin-top:2px">Jorvie</div>
@@ -436,10 +408,11 @@ function renderMatch() {
       ["DC","N7","N11","N9"].forEach(pos => {
         const name=sl.ass[pos], pi=POS[pos];
         const isNew = entrants.includes(name);
-        h += `<div style="background:${pi.bg};border:2px solid ${isNew?pi.color:pi.color+'44'};border-radius:8px;padding:8px 4px;text-align:center;min-width:52px;flex:1;${isNew?'box-shadow:0 0 8px '+pi.color+'55':''}" >
+        const isCore2 = CORE.has(name);
+        h += `<div style="background:${pi.bg};border:2px solid ${isNew?pi.color:pi.color+'33'};border-radius:8px;padding:8px 4px;text-align:center;min-width:52px;flex:1${isNew?';box-shadow:0 0 8px '+pi.color+'44':''}">
           <div style="font-size:14px">${pi.emoji}</div>
-          <div style="font-size:10px;font-weight:700;color:${pi.color};margin-top:2px">${name||"—"}${isNew?' 🆕':''}</div>
-          <div style="font-size:9px;color:${pi.color}88">${pi.num}</div>
+          <div style="font-size:10px;font-weight:700;color:${pi.color};margin-top:2px">${name||"—"}</div>
+          <div style="font-size:9px;color:${pi.color}66">${pi.num}${isCore2?' ⭐':''}</div>
         </div>`;
       });
 
@@ -451,7 +424,6 @@ function renderMatch() {
     });
     h += `</div>`;
 
-    // Score & commentaire
     if (!S.saved) {
       h += `<div class="card">
         <label class="lbl">🏆 Score & souvenir</label>
@@ -492,22 +464,19 @@ function renderHistory() {
     h += `<div style="text-align:center;color:#555;padding:40px"><div style="font-size:36px;margin-bottom:8px">📭</div>Aucun match enregistré</div>`;
     document.getElementById("tab-history").innerHTML=h; return;
   }
-
-  // Stats joueurs
   h += `<div class="card"><label class="lbl">👤 Stats par joueur</label>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(138px,1fr));gap:7px;">`;
   ALL.forEach(name => {
     const entries=S.hist[name]||[], pi=POS[gP(name).pos[0]];
     const total=entries.reduce((s,e)=>s+(e.mins||0),0);
     h += `<div style="background:#0d1226;border-radius:9px;padding:9px;border-left:3px solid ${pi.color}">
-      <div style="font-weight:700;font-size:11px;margin-bottom:2px">${pi.emoji} ${name}</div>
+      <div style="font-weight:700;font-size:11px;margin-bottom:2px">${pi.emoji} ${name}${CORE.has(name)?' ⭐':''}</div>
       <div style="font-size:10px;color:#7986cb">${entries.length} convoc. · ${fmtMinutesLabel(total)}</div>
       <div style="font-size:10px;color:#555">${entries.length?fmt(entries[0].date):"—"}</div>
     </div>`;
   });
   h += `</div></div>`;
 
-  // Liste matchs
   S.matches.forEach(m => {
     const hasScore = m.scoreNous!=null && m.scoreEux!=null;
     let resultBadge = "";
@@ -622,15 +591,16 @@ function renderRoster() {
       h += `<div style="background:#0d1226;border-radius:8px;padding:6px 11px;border:1px solid ${pi.color}33;font-size:12px">
         <strong>${p.name}</strong>
         ${p.fixed?'<span style="font-size:9px;color:#f39c12;margin-left:3px">🔒</span>':""}
-        ${p.pos.length>1?'<span style="font-size:9px;color:#a78bfa;margin-left:3px">✦</span>':""}
+        ${CORE.has(p.name)?'<span style="font-size:9px;color:#c084fc;margin-left:3px">⭐</span>':""}
+        ${p.pos.length>1&&!CORE.has(p.name)?'<span style="font-size:9px;color:#a78bfa;margin-left:3px">✦</span>':""}
       </div>`;
     });
     h += `</div></div>`;
   });
   h += `<div class="green-note">
-    ✦ <strong>Raf</strong> : DC (n°3) · Ailier G (n°7) · Ailier D (n°11) · Attaquant (n°9)<br>
-    ✦ <strong>Mathias</strong> : Ailier G (n°7) · Ailier D (n°11) · Attaquant (n°9)<br>
-    Postes adaptés automatiquement selon les besoins de la compo.
+    ⭐ <strong>Noyau dur</strong> : Tessio · Raf · Dario · Sandro · Mathias — jouent ensemble en priorité<br>
+    ✦ <strong>Raf</strong> : DC · Ailier G · Ailier D · Attaquant<br>
+    ✦ <strong>Mathias</strong> : Ailier G · Ailier D · Attaquant
   </div>`;
   document.getElementById("tab-roster").innerHTML = h;
 }
